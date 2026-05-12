@@ -32,8 +32,8 @@ if [ $? -eq 0 ]; then
     echo "备份位置: $BACKUP_FILE"
     echo "-------------------------------------------"
     
-    # 可选：保留最近 10 次备份，删除旧备份
-    # ls -t "${BACKUP_DIR}"/抓取题目_backup_*.tar.gz | tail -n +11 | xargs rm -f
+    # 保留最近 50 次备份，删除更旧的备份
+    ls -t "${BACKUP_DIR}"/抓取题目_backup_*.tar.gz | tail -n +51 | xargs rm -f
 else
     echo "错误：备份失败，请检查目录权限或空间是否充足。"
     exit 1
