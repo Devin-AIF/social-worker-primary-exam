@@ -1,0 +1,10 @@
+<div class="page-search-items clearfix  gif-sty">
+                    <div class="title">类型：</div>
+                    <ul>
+                        <li class="current2">
+                            <a href="/Tiku/Product/index/product_id/1525/subject_id/1563/type/0.html">章节练习</a></li><li>
+                            <a href="/Tiku/Product/index/product_id/1525/subject_id/1563/type/1.html">历年真题</a></li><li>
+                            <a href="/Tiku/Product/index/product_id/1525/subject_id/1563/type/2.html">模拟试卷</a></li>                        
+                        <li>
+                                                                                                            <a href="/Tiku/mokao/social.html?product_id=1525&amp;subject_id=1563" class="gif-lik GrayBtnSelect"><img src="//img.xinxuejy.com/static/img/tiku_fzkc.png?r=2112231"></a>                            </li>                    </ul>
+                </div>

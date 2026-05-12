@@ -1,0 +1,12 @@
+{
+  "name": "tiku-crawler",
+  "version": "1.0.0",
+  "description": "自动化抓取脚本 V4",
+  "main": "crawler_v4.js",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "scripts": {
+    "start": "node crawler_v4.js"
+  }
+}

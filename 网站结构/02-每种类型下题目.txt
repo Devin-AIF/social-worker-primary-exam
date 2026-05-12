@@ -1,0 +1,214 @@
+<div class="product-left-list">
+                    <a href="/package/views/id/778.html" target="_blank" class="link-banner"><span>初级工作实务 - 相关课程</span></a>                                <div class="question-title-bar">
+
+                <div class="title">章节名称</div>
+                <div class="already">已做/总题</div>
+                <!--div class="error">错题delete</div-->
+            </div>
+                            <ul class="question-conten-list clearfix">
+                <li class="big" data-bigid="32065">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第一章　社会工作实务的通用过程                                                </div>
+                    <div class="already">4/176</div>
+                    <!--div class="error">2 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32065&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32065" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32065&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32065" again="0" data-status="1" class="enable">错题(2)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32065&itemtype=0&num=9999&type=1&again=1" id="32065" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="53770">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第二章    人民信访工作领域社会工作服务                                                </div>
+                    <div class="already">0/50</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53770&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="53770" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53770&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="53770" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=53770&itemtype=0&num=9999&type=1&again=1" id="53770" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="53771">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第三章    基层治理和基层政权建设领域社会工作服务                                                </div>
+                    <div class="already">0/50</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53771&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="53771" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53771&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="53771" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=53771&itemtype=0&num=9999&type=1&again=1" id="53771" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="53772">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第四章    新就业群体社会工作服务                                                </div>
+                    <div class="already">0/52</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53772&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="53772" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53772&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="53772" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=53772&itemtype=0&num=9999&type=1&again=1" id="53772" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32073">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第五章　社会救助社会工作服务                                                </div>
+                    <div class="already">0/102</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32073&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32073" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32073&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32073" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32073&itemtype=0&num=9999&type=1&again=1" id="32073" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="53773">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第六章    司 法社会工作服务                                                </div>
+                    <div class="already">0/48</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53773&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="53773" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53773&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="53773" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=53773&itemtype=0&num=9999&type=1&again=1" id="53773" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="53774">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第七章    退役军人事务社会工作服务                                                </div>
+                    <div class="already">0/48</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53774&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="53774" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53774&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="53774" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=53774&itemtype=0&num=9999&type=1&again=1" id="53774" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32075">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第八章　学校社会工作服务                                                </div>
+                    <div class="already">0/106</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32075&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32075" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32075&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32075" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32075&itemtype=0&num=9999&type=1&again=1" id="32075" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32077">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第九章　医务社会工作服务                                                </div>
+                    <div class="already">0/104</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32077&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32077" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32077&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32077" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32077&itemtype=0&num=9999&type=1&again=1" id="32077" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32078">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十章　企业社会工作服务                                                </div>
+                    <div class="already">0/105</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32078&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32078" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32078&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32078" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32078&itemtype=0&num=9999&type=1&again=1" id="32078" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="53775">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十一章    防灾减灾救灾社会工作服务                                                </div>
+                    <div class="already">0/50</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53775&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="53775" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=53775&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="53775" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=53775&itemtype=0&num=9999&type=1&again=1" id="53775" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32066">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十二章　儿童社会工作服务                                                </div>
+                    <div class="already">0/132</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32066&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32066" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32066&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32066" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32066&itemtype=0&num=9999&type=1&again=1" id="32066" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32067">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十三章　青少年社会工作服务                                                </div>
+                    <div class="already">0/116</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32067&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32067" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32067&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32067" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32067&itemtype=0&num=9999&type=1&again=1" id="32067" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32068">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十四章　老年社会工作服务                                                </div>
+                    <div class="already">0/119</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32068&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32068" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32068&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32068" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32068&itemtype=0&num=9999&type=1&again=1" id="32068" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32069">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十五章　妇女社会工作服务                                                </div>
+                    <div class="already">0/113</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32069&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32069" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32069&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32069" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32069&itemtype=0&num=9999&type=1&again=1" id="32069" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32070">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十六章　残疾人社会工作服务                                                </div>
+                    <div class="already">0/104</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32070&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32070" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32070&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32070" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32070&itemtype=0&num=9999&type=1&again=1" id="32070" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                <li class="big" data-bigid="32074">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第十七章　家庭社会工作服务                                                </div>
+                    <div class="already">0/114</div>
+                    <!--div class="error">0 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32074&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32074" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32074&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32074" again="0" data-status="1" class="enable">错题(0)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32074&itemtype=0&num=9999&type=1&again=1" id="32074" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>
+                                                </ul>
+            </div>

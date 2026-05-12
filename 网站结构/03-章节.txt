@@ -1,0 +1,12 @@
+<li class="big" data-bigid="32065">
+                                                    <div class="title nobg1" style="padding-left:0; padding-right:30px;">                        第一章　社会工作实务的通用过程                                                </div>
+                    <div class="already">4/176</div>
+                    <!--div class="error">2 delete</div-->
+                    <div class="btns">
+                                                    <p class="Btn">
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32065&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0" id="32065" again="0" data-status="0" class="enable a2">做题</a>
+                                    <a href="/Tiku/Knows/index.html?product_id=1525&amp;subject_id=1563&amp;know_id=32065&amp;itemtype=0&amp;num=9999&amp;type=1&amp;again=0&amp;show_result=1&amp;show_time=0&amp;show_error=1" id="32065" again="0" data-status="1" class="enable">错题(2)</a>
+                                    <!--a   href="/Tiku/Knows/index.html?product_id=1525&subject_id=1563&know_id=32065&itemtype=0&num=9999&type=1&again=1" id="32065" again="1" data-status="0" class="enable itemreset"><img src="//img.xinxuejy.com/static/img/tiku_item_reset.png?r=202201261035" /></a-->
+                                </p>
+                                                    </div>
+                </li>

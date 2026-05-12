@@ -1,0 +1,66 @@
+<div class="fl answer-content">
+        <div class="bg-white pd10" id="itemlist">
+            
+            <div class="subject-attr">
+                <em class="type" id="item_type">单选题</em>
+                <em class="star" id="item_star" style="display: none;"></em>
+                <em class="step" id="item_step">1/176</em>
+                <em class="collect fr">收藏</em>
+                <em class="item_id fr" id="item_id">编号：4734878</em>
+                <em class="show_child fr" style="display: none;"></em>
+            </div>
+            <div class="subject-tit mt10" id="item_title">1.<img src="data:image/png;base64,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" height="22" style="vertical-align: text-bottom;">机构拟在杨村开展精准扶贫项目。该机构社会工作者在项目计划中详细列出了服务的目的及目标、关注的问题和对象。按照服务计划构成的要求，该项目计划的内容还应包括（）。</div>
+            <div class="item_options" id="item_options"><ul class="subject-option mt20 radio" data-optype="radio" data-answer="18153490" data-isanswer="0"><li data-optname="A" data-answer="18153490" class="cur"><em class="input"></em><span>A.服务要使用的方法</span></li><li data-optname="B" data-answer="18153491" class=""><em class="input"></em><span>B.服务要改变的人</span></li><li data-optname="C" data-answer="18153492" class=""><em class="input"></em><span>C.服务要影响的政策</span></li><li data-optname="D" data-answer="18153493" class=""><em class="input"></em><span>D.服务要改变的系统</span></li></ul></div>
+
+        </div>
+        <div class="pt10 clearfix">
+            <a class="fl bg-white subject-last" href="#"><i>上一题</i> </a>
+            <a class="fl bg-white subject-next" href="#"><i>下一题</i></a>
+            <a class="fr bg-white subject-save" href="#"><i>保存进度并退出</i></a>
+        </div>
+        <div class="mt10 pd10 clearfix bg-white hide" id="analysis" style="display: block;">
+            
+            <div class="answer-yes" id="answer_analysis">
+                <div class="tit">
+                    <span class="tips" style="border-radius: 10px 10px 0px 0px;"><i></i> 答对了，好棒!</span>
+                    <span class="right">正确答案：A</span>
+                    <span href="javascript:" class="click_analysis" style="display:none;margin-left:50px">点击查看解析<i></i></span>
+                    <span class="correct fr"><i></i> 我要纠错</span>
+                    <span class="remove_error_item fr" style="display: none;"><i></i> 从错题本移除</span>
+                </div>
+                <div class="analysis pd10"><p style="line-height:30px;">参考解析：</p>（考点:服务计划的构成）社会工作服务计划的完整构成包括三部分：①目的及目标；②关注的问题与对象；③介入的方法和介入行动。题干中已经列出了目的及目标、关注的问题和对象，因此还缺少服务要使用的方法（A选项）。选项B服务要改变的人属于关注的对象范畴，题干已经涵盖；选项C影响政策、选项D改变的系统不属于服务计划的必备构成要素。<br><br><p></p><br></div>
+            </div><div class="video-analysis" style="display: block;"><div class="video-analysis-title">视频解析</div><div class="video-item-list"></div></div>
+          
+        </div>
+        <div class="mt10 pd10 clearfix bg-white tiku-talk-list hide" id="talk-list" style="display: block;">
+            <h1>试题讨论</h1>
+            <ul class="mt10"><li><div class="clearfix tiwen"><div class="fl headimg stud"></div><div class="fr"><p class="name">欣师学员：158****6620</p> <p class="mesage">1.目的及目标
+2.关注问题与对象</p><p class="time">2026-03-26 10:38:46</p></div></div><div class="clearfix huida"><div class="fl headimg terd"></div><div class="fr"><p class="name">欣师老师</p><p class="mesage">服务计划的第三部分核心内容是介入方法和行动，题干已经包含前两部分内容，因此还需要补充服务使用的方法，答案选A。</p><p class="time">2026-03-26 21:41:42</p></div></div></li><li><div class="clearfix tiwen"><div class="fl headimg stud"></div><div class="fr"><p class="name">欣师学员：138****8016</p> <p class="mesage">为什么选A？</p><p class="time">2025-03-25 06:40:30</p></div></div><div class="clearfix huida"><div class="fl headimg terd"></div><div class="fr"><p class="name">欣师老师</p><p class="mesage">题目：该机构社会工作者在项目计划中详细列出了服务的目的及目标、关注的问题和对象。服务计划由以下几部分内容构成：（1）目的及目标； （2）关注的问题与对象；（3）介入的方法和介入行动。&nbsp;那除了题目列出来的 还应该包括的 不就是方法嘛&nbsp; 那就是A&nbsp; 啊</p><p class="time">2025-03-25 17:45:20</p></div></div></li></ul>
+            <div class="morenote loadmore hide" style="text-align: center; color: rgb(244, 148, 125); cursor: pointer; padding-top: 8px; display: none;">点击查看更多↓</div>
+            <div class="morenote endmore" style="text-align: center; color: #F4947D;cursor:pointer; padding-top:8px;">没有更多了</div>
+        </div>
+        <div class="mt10 pd10 clearfix bg-white tiku-talk" id="talk" style="display: block;">
+            <h1 style="display: none;">试题讨论</h1>
+            <textarea id="talk_message" placeholder="请您详细描述对本题的疑问，限150字"></textarea>
+            <div class="talk-submit"><a href="#" class="subject-submit cur">发表讨论</a></div>
+        </div>
+    </div>
+
+
+
+
+
+<div class="mt10 pd10 clearfix bg-white hide" id="analysis" style="display: block;">
+            
+            <div class="answer-yes" id="answer_analysis">
+                <div class="tit">
+                    <span class="tips" style="border-radius: 10px 10px 0px 0px;"><i></i> 答对了，好棒!</span>
+                    <span class="right">正确答案：A</span>
+                    <span href="javascript:" class="click_analysis" style="display:none;margin-left:50px">点击查看解析<i></i></span>
+                    <span class="correct fr"><i></i> 我要纠错</span>
+                    <span class="remove_error_item fr" style="display: none;"><i></i> 从错题本移除</span>
+                </div>
+                <div class="analysis pd10"><p style="line-height:30px;">参考解析：</p>（考点:服务计划的构成）社会工作服务计划的完整构成包括三部分：①目的及目标；②关注的问题与对象；③介入的方法和介入行动。题干中已经列出了目的及目标、关注的问题和对象，因此还缺少服务要使用的方法（A选项）。选项B服务要改变的人属于关注的对象范畴，题干已经涵盖；选项C影响政策、选项D改变的系统不属于服务计划的必备构成要素。<br><br><p></p><br></div>
+            </div><div class="video-analysis" style="display: block;"><div class="video-analysis-title">视频解析</div><div class="video-item-list"></div></div>
+          
+        </div>
