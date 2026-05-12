@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>社会工作者·职业水平考试·模拟系统</title>
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎓</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- 引入独立的 CSS 文件 -->
+    <link rel="stylesheet" href="css/style.css?v=23">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- 侧边导航 -->
+        <nav class="glass-nav">
+            <h1 class="logo">社会工作实务<span>·</span>初级</h1>
+            <div class="version-badge">v1.01</div>
+            <!-- 考试倒计时 -->
+            <div class="countdown-badge" id="countdown-badge">
+                <div class="countdown-label">欢迎使用模拟系统</div>
+                <div class="countdown-value" id="countdown-value">勤学苦练，必有所获</div>
+            </div>
+            <!-- 主题切换 -->
+            <div class="theme-switcher" id="theme-switcher">
+                <button class="theme-btn" data-theme="light" title="浅色模式">☀️ 浅色</button>
+                <button class="theme-btn active" data-theme="auto" title="跟随系统">🌓 自动</button>
+                <button class="theme-btn" data-theme="dark" title="深色模式">🌙 深色</button>
+            </div>
+
+            <div class="nav-links">
+                <button class="nav-btn active" data-view="practice">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                    <span id="nav-mode-label">练习模式</span>
+                </button>
+                <button class="nav-btn" data-view="wrong">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="15" y1="9" x2="9" y2="15"></line>
+                        <line x1="9" y1="9" x2="15" y2="15"></line>
+                    </svg>
+                    错题本 <span class="badge" id="wrong-count">0</span>
+                </button>
+                <button class="nav-btn" data-view="favorites">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon
+                            points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2">
+                        </polygon>
+                    </svg>
+                    收藏夹 <span class="badge" id="fav-count">0</span>
+                </button>
+            </div>
+
+            <!-- 题目导航面板 -->
+            <div class="question-panel">
+                <div class="panel-title">
+                    <span>题目列表</span>
+                    <div class="panel-legend">
+                        <span class="legend-item"><i class="legend-dot dot-correct"></i>正确</span>
+                        <span class="legend-item"><i class="legend-dot dot-wrong"></i>错误</span>
+                    </div>
+                </div>
+                <div class="question-grid" id="question-grid"></div>
+            </div>
+
+            <div class="nav-footer">
+                <div class="progress-container">
+                    <div class="progress-text">进度: <span id="progress-text">0/0</span></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="stats-row">
+                        <div class="stat-item stat-correct">
+                            <span class="stat-label">✓ 正确</span>
+                            <span class="stat-value" id="correct-count">0</span>
+                        </div>
+                        <div class="stat-item stat-wrong">
+                            <span class="stat-label">✗ 错误</span>
+                            <span class="stat-value" id="wrong-stat-count">0</span>
+                        </div>
+                    </div>
+                    <div class="accuracy-display">
+                        <span class="accuracy-label">正确率</span>
+                        <span class="accuracy-value" id="accuracy-percent">0%</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 主内容区 -->
+        <main class="main-content" style="padding-top: 2rem;">
+
+            <!-- ✨ 统一的全局顶部控制栏 -->
+            <div class="global-sticky-header">
+                <div class="settings-panel">
+                    <div class="settings-controls">
+                        <!-- 理论区的设置控件 -->
+                        <div id="theory-controls" class="header-view-group">
+                            <div class="setting-item">
+                                <label class="setting-label">答题模式：</label>
+                                <select id="app-mode" class="select-css">
+                                    <option value="practice">练习模式</option>
+                                    <option value="exam">考试/提交模式</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label">出题顺序：</label>
+                                <select id="order-mode" class="select-css">
+                                    <option value="sequential">顺序出题</option>
+                                    <option value="random">随机出题</option>
+                                    <option value="mock">模拟组卷 (60单+20多)</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label">章节筛选：</label>
+                                <select id="chapter-filter" class="select-css">
+                                    <option value="all">全部章节</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label">题型筛选：</label>
+                                <select id="type-filter" class="select-css">
+                                    <option value="all">全部题型</option>
+                                    <option value="单选题">单选题</option>
+                                    <option value="多选题">多选题</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 错题本/收藏夹专属标题 -->
+                        <div id="other-controls" class="header-view-group" style="display: none;">
+                            <div class="setting-item">
+                                <h2 id="other-title"
+                                    style="font-size: 1.15rem; font-weight: 600; margin: 0; color: var(--text-primary);">
+                                </h2>
+                            </div>
+                        </div>
+
+                        <!-- 全局工具组 -->
+                        <div class="global-tools-inline">
+                            <button class="float-tool-btn" id="import-btn">📂 导入进度</button>
+                            <button class="float-tool-btn" id="export-btn">💾 导出进度</button>
+                            <button class="float-tool-btn danger-hover" id="clear-data-btn"
+                                style="color: var(--error-color);">🗑 重置数据</button>
+                            <div style="width: 1px; height: 16px; background: var(--border-color); margin: 0 0.25rem;">
+                            </div>
+                            <button class="float-tool-btn" id="nav-btn-help">📖 帮助</button>
+                            <button class="float-tool-btn" id="nav-btn-changelog">🆕 日志</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 练习视图 -->
+            <section id="view-practice" class="view-section active">
+                <!-- 题目卡片 -->
+                <div class="question-card glass-card">
+                    <div class="card-header">
+                        <div class="card-header-left">
+                            <span class="badge-type" id="q-type">单选题</span>
+                            <span class="badge-type mode-badge hidden" id="mode-badge"></span>
+                        </div>
+                        <div class="actions">
+                            <button class="icon-btn exit-btn hidden" id="exit-mode-btn" title="退出重练模式">退出重练</button>
+                            <button class="icon-btn fav-btn" id="current-fav-btn" title="收藏此题">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon
+                                        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2">
+                                    </polygon>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="question-nav">
+                        <button class="btn secondary-btn" id="prev-btn">上一题</button>
+                        <button class="btn primary-btn submit-exam-hidden" id="submit-exam-btn">交卷并统计得分</button>
+                        <button class="btn secondary-btn" id="next-btn">下一题</button>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="question-content">
+                            <h2 class="q-title" id="q-title">加载中...</h2>
+                            <div class="options-list" id="q-options"></div>
+                            <div id="multi-choice-actions" class="hidden multi-actions">
+                                <button class="btn primary-btn" id="submit-multi-btn">确认提交多选题</button>
+                            </div>
+                        </div>
+
+                        <div class="feedback-sidebar">
+                            <div id="feedback-placeholder" class="feedback-placeholder">
+                                <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5"
+                                    fill="none">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                                </svg>
+                                <div>请在左侧作答后<br>查看答题效果与解析</div>
+                            </div>
+                            <div class="feedback-area hidden" id="feedback-area">
+                                <p class="feedback-result" id="feedback-result"></p>
+                                <p class="real-answer">正确答案是: <strong id="real-answer"></strong></p>
+                                <div class="explanation-area">
+                                    <div class="explanation-title">💡 深度解析：</div>
+                                    <p class="explanation-text" id="explanation"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 错题本视图 -->
+            <section id="view-wrong" class="view-section">
+                <div class="list-header">
+                    <div>
+                        <p style="margin:0;">重温错题，查漏补缺（数据已同步保存至浏览器本地缓存）</p>
+                    </div>
+                    <button class="btn primary-btn" id="start-wrong-practice">开始重练错题</button>
+                </div>
+                <div class="scroll-list" id="wrong-list"></div>
+            </section>
+
+            <!-- 收藏夹视图 -->
+            <section id="view-favorites" class="view-section">
+                <div class="list-header">
+                    <div>
+                        <p style="margin:0;">您收藏的重点和易考题（数据已同步保存至浏览器本地缓存）</p>
+                    </div>
+                    <button class="btn primary-btn" id="start-fav-practice">开始练习收藏</button>
+                </div>
+                <div class="scroll-list" id="fav-list"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 考试结果弹窗 -->
+    <div id="exam-result-modal" class="hidden modal-overlay">
+        <div class="modal-card-center modal-small">
+            <h2>答题结果统计</h2>
+            <div class="exam-score" id="exam-score">0分</div>
+            <p class="exam-stats">
+                共提供题目：<span id="exam-total" class="stat-highlight"></span> 题<br>
+                实际作答：<span id="exam-answered" class="stat-highlight"></span> 题<br>
+                回答正确：<span id="exam-correct" class="stat-success"></span> 题<br>
+                回答错误：<span id="exam-wrong" class="stat-error"></span> 题
+            </p>
+            <button class="btn primary-btn modal-close-btn" id="close-modal-btn">关闭并查看详情</button>
+        </div>
+    </div>
+
+    <!-- 帮助手册内嵌弹窗 -->
+    <div id="help-modal" class="hidden modal-overlay">
+        <div class="modal-card-center modal-wide">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; flex-shrink: 0;">
+                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.01)</h2>
+                <button id="close-help-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
+            </div>
+            <div class="modal-scroll-content">
+                <h3>一、全新交互布局</h3>
+                <p>本系统为社会工作者职业水平考试定制，支持 **理论模拟练习** 与 **错题重点复习**。</p>
+                <h3>二、加权计分模拟考</h3>
+                <p>“模拟组卷”模式按真实比例抽题：单选题 60 道（每题1分），多选题 20 道（每题2分），满分 100 分。</p>
+                <h3>三、章节练习</h3>
+                <p>通过顶部的 **章节筛选**，您可以专注于特定章节的题目练习。</p>
+                <div class="highlight-box">
+                    <p style="margin-bottom:0; font-size: 0.85rem;">⚠️ <strong>数据安全</strong>：本系统数据存储在本地，建议经常点击『导出』备份。</p>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 1.5rem; flex-shrink: 0;">
+                <button id="close-help-btn-bottom" class="btn primary-btn">了解并开始练习</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 更新日志内嵌弹窗 -->
+    <div id="changelog-modal" class="hidden modal-overlay">
+        <div class="modal-card-center modal-wide">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; flex-shrink: 0;">
+                <h2 style="margin: 0; color: var(--primary-color);">🆕 版本更新日志</h2>
+                <button id="close-changelog-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
+            </div>
+            <div class="modal-scroll-content">
+                <h3>🚀 [v1.01] - 初始版本发布</h3>
+                <span class="version-date">2026-05-12</span>
+                <ul>
+                    <li>**[新增] 全量题库导入**：支持章节练习全量导入。</li>
+                    <li>**[新增] 章节筛选**：支持按章节过滤题目，方便专项突破。</li>
+                    <li>**[新增] 题库同步脚本**：支持从 Markdown 快速更新题库数据，完美支持图片与样式。</li>
+                    <li>**[优化] 模拟卷配置**：调整为 60单+20多 的标准社工考试模式。</li>
+                </ul>
+            </div>
+            <div style="text-align: center; margin-top: 1.5rem; flex-shrink: 0;">
+                <button id="close-changelog-btn-bottom" class="btn primary-btn">看完了，关闭</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        function syncTopHeader() {
+            const isWrong = document.getElementById('view-wrong').classList.contains('active');
+            const isFav = document.getElementById('view-favorites').classList.contains('active');
+
+            document.getElementById('theory-controls').style.display = (!isWrong && !isFav) ? 'flex' : 'none';
+
+            const otherControls = document.getElementById('other-controls');
+            if (isWrong) {
+                otherControls.style.display = 'flex';
+                document.getElementById('other-title').innerText = '📚 我的错题本';
+            } else if (isFav) {
+                otherControls.style.display = 'flex';
+                document.getElementById('other-title').innerText = '⭐ 我的收藏';
+            } else {
+                otherControls.style.display = 'none';
+            }
+        }
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.nav-btn') || e.target.closest('#start-wrong-practice') || e.target.closest('#start-fav-practice')) {
+                setTimeout(syncTopHeader, 30);
+            }
+        });
+        window.addEventListener('load', () => setTimeout(syncTopHeader, 100));
+
+        document.getElementById('nav-btn-help').addEventListener('click', () => {
+            document.getElementById('help-modal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        });
+        const closeHelp = () => {
+            document.getElementById('help-modal').classList.add('hidden');
+            document.body.style.overflow = '';
+        };
+        document.getElementById('close-help-btn').addEventListener('click', closeHelp);
+        document.getElementById('close-help-btn-bottom').addEventListener('click', closeHelp);
+
+        document.getElementById('nav-btn-changelog').addEventListener('click', () => {
+            document.getElementById('changelog-modal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        });
+        const closeChangelog = () => {
+            document.getElementById('changelog-modal').classList.add('hidden');
+            document.body.style.overflow = '';
+        };
+        document.getElementById('close-changelog-btn').addEventListener('click', closeChangelog);
+        document.getElementById('close-changelog-btn-bottom').addEventListener('click', closeChangelog);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            function parseMarkdownInDOM(elementId) {
+                const el = document.getElementById(elementId);
+                if (!el) return;
+                function processNode(node) {
+                    if (node.nodeType === 3) {
+                        let text = node.nodeValue;
+                        if (text.includes('**') || text.includes('`')) {
+                            const span = document.createElement('span');
+                            let parsed = text
+                                .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                                .replace(/\*\*([\s\S]*?)\*\*/g, '<strong style="color: var(--primary-color); font-weight: 700;">$1</strong>')
+                                .replace(/`([^`]+)`/g, '<code style="background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; color: #e11d48; font-family: monospace;">$1</code>');
+                            span.innerHTML = parsed;
+                            while (span.firstChild) {
+                                node.parentNode.insertBefore(span.firstChild, node);
+                            }
+                            node.parentNode.removeChild(node);
+                        }
+                    } else if (node.nodeType === 1) {
+                        if (['CODE', 'STRONG', 'SCRIPT', 'STYLE'].includes(node.tagName)) return;
+                        Array.from(node.childNodes).forEach(processNode);
+                    }
+                }
+                processNode(el);
+            }
+            parseMarkdownInDOM('help-modal');
+            parseMarkdownInDOM('changelog-modal');
+        });
+    </script>
+    <script src="js/questions.js?v=23"></script>
+    <script src="js/app.js?v=23"></script>
+</body>
+
+</html>
