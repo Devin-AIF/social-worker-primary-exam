@@ -1451,7 +1451,7 @@ body.handson-mode .main-content {
     height: 1.3em; /* 稍微增大，适应行高 */
     width: auto;
     display: inline-block;
-    vertical-align: -0.25em; /* 精确下移图片，使其居中对齐文字 */
+    vertical-align: -0.18em; /* 稍微往上移动一点点，居中对齐文字 */
     margin: 0 0.1rem; 
     border-radius: 2px;
 }

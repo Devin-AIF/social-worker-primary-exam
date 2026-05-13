@@ -238,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href = url;
-        a.download = 'ai_trainer_backup.json';
+        a.download = 'social_work_sim_backup.json';
         a.click();
         URL.revokeObjectURL(url);
     }
