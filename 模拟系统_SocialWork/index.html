@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- 引入独立的 CSS 文件 -->
-    <link rel="stylesheet" href="css/style.css?v=24">
+    <link rel="stylesheet" href="css/style.css?v=1.13">
 </head>
 
 <body>
@@ -18,7 +18,7 @@
         <!-- 侧边导航 -->
         <nav class="glass-nav">
             <h1 class="logo">社会工作实务<span>·</span>初级</h1>
-            <div class="version-badge">v1.12</div>
+            <div class="version-badge">v1.13</div>
             <!-- 考试倒计时 -->
             <div class="countdown-badge" id="countdown-badge">
                 <div class="countdown-label">欢迎使用模拟系统</div>
@@ -259,7 +259,7 @@
     <div id="help-modal" class="hidden modal-overlay">
         <div class="modal-card-center modal-wide">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; flex-shrink: 0;">
-                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.12)</h2>
+                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.13)</h2>
                 <button id="close-help-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-scroll-content">
@@ -287,6 +287,13 @@
                 <button id="close-changelog-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-scroll-content">
+                <h3>🚀 [v1.13] - 核心逻辑修复与体验还原版</h3>
+                <span class="version-date">2026-05-13</span>
+                <ul>
+                    <li>**[修复] 答题遮挡与正确率计算**：修复了提交答案后“请在左侧作答”提示不消失的问题；修正了正确率计算公式（基于已作答题数），并将静态资源版本统一为 `v=1.13` 强制刷新浏览器缓存解决0%卡死问题。</li>
+                    <li>**[优化] 界面还原与反馈增强**：还原了“答题模式”与“出题顺序”经典文案；高亮了“模拟组卷”选项；为导出进度添加了成功反馈弹窗。</li>
+                </ul>
+
                 <h3>🚀 [v1.12] - 排版极致细节优化</h3>
                 <span class="version-date">2026-05-13</span>
                 <ul>
@@ -298,12 +305,6 @@
                 <span class="version-date">2026-05-13</span>
                 <ul>
                     <li>**[修复] 吸顶残留**：移除了题号面板容器的 `gap` 属性，解决了模拟组卷模式下标题推挤时的视觉残留。</li>
-                </ul>
-
-                <h3>🚀 [v1.10] - 侧边栏吸顶效果重构</h3>
-                <span class="version-date">2026-05-13</span>
-                <ul>
-                    <li>**[重构] 题号面板**：引入 `.qp-section` 容器，彻底解决了题型标题相互重叠的 Bug。</li>
                 </ul>
 
                 <div class="highlight-box" style="margin-top: 2rem;">
@@ -434,8 +435,8 @@
             parseMarkdownInDOM('changelog-modal');
         });
     </script>
-    <script src="js/questions.js?v=24"></script>
-    <script src="js/app.js?v=24"></script>
+    <script src="js/questions.js?v=1.13"></script>
+    <script src="js/app.js?v=1.13"></script>
 </body>
 
 </html>
