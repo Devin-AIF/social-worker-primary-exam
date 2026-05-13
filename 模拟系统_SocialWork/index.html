@@ -18,7 +18,7 @@
         <!-- 侧边导航 -->
         <nav class="glass-nav">
             <h1 class="logo">社会工作实务<span>·</span>初级</h1>
-            <div class="version-badge">v1.07</div>
+            <div class="version-badge">v1.08</div>
             <!-- 考试倒计时 -->
             <div class="countdown-badge" id="countdown-badge">
                 <div class="countdown-label">欢迎使用模拟系统</div>
@@ -259,7 +259,7 @@
     <div id="help-modal" class="hidden modal-overlay">
         <div class="modal-card-center modal-wide">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; flex-shrink: 0;">
-                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.07)</h2>
+                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.08)</h2>
                 <button id="close-help-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-scroll-content">
@@ -287,50 +287,25 @@
                 <button id="close-changelog-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-scroll-content">
+                <h3>🚀 [v1.08] - 代码净化与排版微调</h3>
+                <span class="version-date">2026-05-13</span>
+                <ul>
+                    <li>**[清理] 源码手术**：彻底移除废弃的旧逻辑，为所有核心函数添加详细中文注释，确保系统长期可维护。</li>
+                    <li>**[优化] 图文对齐**：微调图片垂直对齐参数至 `-0.18em`，完美解决图片偏高的问题。</li>
+                    <li>**[修正] 备份系统**：导出文件名更正为 `social_work_sim_backup.json`，更加贴合项目。</li>
+                </ul>
+
                 <h3>🚀 [v1.07] - 细节打磨与图片对齐微调</h3>
                 <span class="version-date">2026-05-13</span>
                 <ul>
-                    <li>**[微调] 图文排版**：针对部分题目中图片位置偏低的问题，微调了图片的垂直偏移量，使其在视觉上更趋于文字行中心。</li>
-                    <li>**[修正] 备份命名**：将导出的进度备份文件名修正为 `social_work_sim_backup.json`，更加贴合项目名称。</li>
+                    <li>**[修复] 题目换行异常**：重构了显示逻辑，解决了图片与文字之间出现的意外换行问题。</li>
+                    <li>**[优化] 重练模式**：进入错题/收藏练习时会自动开启“临时进度 Session”。</li>
                 </ul>
 
                 <h3>🚀 [v1.06] - 统计联动与重练进度同步</h3>
                 <span class="version-date">2026-05-13</span>
                 <ul>
-                    <li>**[同步] 重练模式统计**：进入错题或收藏练习时，左侧进度条、正确/错误数以及正确率现在会同步刷新，仅针对当前重练的题目集进行实时统计。</li>
-                    <li>**[优化] 统计逻辑**：修正了非全局练习模式下，正确/错误统计会包含全库数据的 Bug。</li>
-                </ul>
-
-                <h3>🚀 [v1.05] - 重练模式增强与图文排版修复</h3>
-                <span class="version-date">2026-05-13</span>
-                <ul>
-                    <li>**[新增] 独立重练进度**：进入错题/收藏练习时会自动开启“临时进度模式”，允许重新作答而不影响全局统计。</li>
-                    <li>**[修复] 题目换行异常**：重构了题目显示逻辑，解决了图片与文字之间出现的意外空行/换行问题。</li>
-                    <li>**[修复] 图片对齐偏移**：通过精确的基线偏移调整，确保题目内图片与文字完美居中对齐。</li>
-                </ul>
-
-                <h3>🚀 [v1.04] - 稳定性修复与主题兼容优化</h3>
-                <span class="version-date">2026-05-13</span>
-                <ul>
-                    <li>**[修复] 导航崩溃**：解决了点击错题本/收藏夹时因废弃视图引用导致的脚本报错。</li>
-                    <li>**[优化] 自动模式边框**：增强了答题模式控制栏在系统跟随模式下的边框对比度。</li>
-                    <li>**[优化] 列表渲染**：提高了错题/收藏列表加载的健壮性。</li>
-                </ul>
-
-                <h3>🚀 [v1.03] - 界面精致化与交互增强版</h3>
-                <span class="version-date">2026-05-13</span>
-                <ul>
-                    <li>**[新增] 动态激励语**：左侧边栏欢迎语支持随机轮询。</li>
-                    <li>**[优化] UI 对齐**：统一了卡片背景色，修复了 1/2 分屏下的线条错位问题。</li>
-                    <li>**[优化] 图文混排**：优化了题目内图片的垂直对齐方式。</li>
-                </ul>
-
-                <h3>🚀 [v1.02] - 深度联动与功能恢复版</h3>
-                <span class="version-date">2026-05-12</span>
-                <ul>
-                    <li>**[重构] 联动筛选**：题号面板支持按章节/题型实时动态刷新。</li>
-                    <li>**[恢复] 备份管理**：重新上线了导出/导入进度功能。</li>
-                    <li>**[优化] 正确率统计**：修正了全库进度的计算逻辑。</li>
+                    <li>**[同步] 重练模式统计**：进入错题或收藏练习时，左侧进度条、正确/错误数以及正确率现在会同步刷新。</li>
                 </ul>
 
                 <div class="highlight-box" style="margin-top: 2rem;">
