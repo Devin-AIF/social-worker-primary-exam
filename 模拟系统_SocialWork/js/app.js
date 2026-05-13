@@ -453,10 +453,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const items = groups[type];
             if (!items || items.length === 0) return;
 
+            // 创建分组容器，用于支撑 sticky header 的推挤逻辑
+            const section = document.createElement('div');
+            section.className = 'qp-section';
+
             const header = document.createElement('div');
             header.className = 'qp-group-header';
             header.textContent = `${type}（当前：${items.length} 题）`;
-            questionGrid.appendChild(header);
+            section.appendChild(header);
 
             const grid = document.createElement('div');
             grid.className = 'qp-group-grid';
@@ -486,7 +490,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 grid.appendChild(btn);
             });
-            questionGrid.appendChild(grid);
+            section.appendChild(grid);
+            questionGrid.appendChild(section);
         });
 
         const currentBtn = questionGrid.querySelector('.qp-current');

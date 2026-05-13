@@ -272,7 +272,7 @@ body {
 .question-grid {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0; /* 移除 gap，防止 sticky 元素推挤时产生像素残留 */
   overflow-y: auto;
   flex: 1;
   min-height: 0;
@@ -293,16 +293,26 @@ body {
   border-radius: 2px;
 }
 
+.qp-section {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.75rem; /* 在容器层级处理分组间距 */
+}
+
+.qp-section:last-child {
+  margin-bottom: 0;
+}
+
 .qp-group-header {
   font-size: 0.68rem;
   font-weight: 600;
   color: var(--primary-color);
-  padding: 0.3rem 0.15rem 0.15rem;
+  padding: 0.6rem 0.15rem 0.4rem; /* 增加填充 */
   border-bottom: 1px solid var(--border-color);
-  margin-bottom: 2px;
-  position: sticky;
-  top: 0;
+  margin-bottom: 6px;
   background: var(--surface-color);
+  position: sticky;
+  top: -1px; /* 微调 -1px 以完美覆盖滚动容器的边界缝隙 */
   z-index: 3;
 }
 
@@ -1451,7 +1461,7 @@ body.handson-mode .main-content {
     height: 1.3em; /* 稍微增大，适应行高 */
     width: auto;
     display: inline-block;
-    vertical-align: -0.18em; /* 稍微往上移动一点点，居中对齐文字 */
-    margin: 0 0.1rem; 
+    vertical-align: -0.12em; /* 再次上移，使其更完美地契合文字 */
+    margin: 0; /* 移除图片两侧间距，解决“多出空格”的问题 */
     border-radius: 2px;
 }
