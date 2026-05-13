@@ -240,6 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
         a.download = 'social_work_sim_backup.json';
         a.click();
         URL.revokeObjectURL(url);
+        alert('✅ 进度备份已成功导出');
     }
 
     function importData() {
@@ -421,10 +422,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wrongStatCountEl) wrongStatCountEl.innerText = wrongStatCount;
         
         if (accuracyPercentEl) {
-            if (total === 0) accuracyPercentEl.innerText = '0%';
+            if (current === 0) accuracyPercentEl.innerText = '0%';
             else {
-                // 正确率 = (本题集答对总数 / 本题集总题数)
-                const accuracy = Math.round((correctCount / total) * 100);
+                // 正确率 = (本题集答对总数 / 已作答题数)
+                const accuracy = Math.round((correctCount / current) * 100);
                 accuracyPercentEl.innerText = `${accuracy}%`;
             }
         }
