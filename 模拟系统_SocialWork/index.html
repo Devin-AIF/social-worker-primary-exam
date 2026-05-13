@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>社会工作者·职业水平考试·模拟系统</title>
     <link rel="icon" type="image/svg+xml"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎓</text></svg>">
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='20' y='10' width='60' height='80' rx='5' fill='%233b82f6'/><path d='M35 30h30M35 50h30M35 70h20' stroke='white' stroke-width='8' stroke-linecap='round'/></svg>">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- 引入独立的 CSS 文件 -->
@@ -18,7 +18,7 @@
         <!-- 侧边导航 -->
         <nav class="glass-nav">
             <h1 class="logo">社会工作实务<span>·</span>初级</h1>
-            <div class="version-badge">v1.01</div>
+            <div class="version-badge">v1.06</div>
             <!-- 考试倒计时 -->
             <div class="countdown-badge" id="countdown-badge">
                 <div class="countdown-label">欢迎使用模拟系统</div>
@@ -178,12 +178,6 @@
                         </div>
                     </div>
 
-                    <div class="question-nav">
-                        <button class="btn secondary-btn" id="prev-btn">上一题</button>
-                        <button class="btn primary-btn submit-exam-hidden" id="submit-exam-btn">交卷并统计得分</button>
-                        <button class="btn secondary-btn" id="next-btn">下一题</button>
-                    </div>
-
                     <div class="card-body">
                         <div class="question-content">
                             <h2 class="q-title" id="q-title">加载中...</h2>
@@ -194,6 +188,12 @@
                         </div>
 
                         <div class="feedback-sidebar">
+                            <div class="side-nav-buttons">
+                                <button class="btn secondary-btn" id="prev-btn">上一题</button>
+                                <button class="btn secondary-btn" id="next-btn">下一题</button>
+                            </div>
+                            <button class="btn primary-btn submit-exam-hidden" id="submit-exam-btn" style="width: 100%; margin-bottom: 1rem;">交卷并统计得分</button>
+
                             <div id="feedback-placeholder" class="feedback-placeholder">
                                 <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5"
                                     fill="none">
@@ -259,7 +259,7 @@
     <div id="help-modal" class="hidden modal-overlay">
         <div class="modal-card-center modal-wide">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; flex-shrink: 0;">
-                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.01)</h2>
+                <h2 style="margin: 0; color: var(--primary-color);">📖 系统使用手册 (v1.06)</h2>
                 <button id="close-help-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-scroll-content">
@@ -283,18 +283,55 @@
     <div id="changelog-modal" class="hidden modal-overlay">
         <div class="modal-card-center modal-wide">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; flex-shrink: 0;">
-                <h2 style="margin: 0; color: var(--primary-color);">🆕 版本更新日志</h2>
+                <h2 style="margin: 0; color: var(--primary-color);">🆕 版本更新日志 (最近3条)</h2>
                 <button id="close-changelog-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-scroll-content">
-                <h3>🚀 [v1.01] - 初始版本发布</h3>
+                <h3>🚀 [v1.06] - 统计联动与重练进度同步</h3>
+                <span class="version-date">2026-05-13</span>
+                <ul>
+                    <li>**[同步] 重练模式统计**：进入错题或收藏练习时，左侧进度条、正确/错误数以及正确率现在会同步刷新，仅针对当前重练的题目集进行实时统计。</li>
+                    <li>**[优化] 统计逻辑**：修正了非全局练习模式下，正确/错误统计会包含全库数据的 Bug。</li>
+                </ul>
+
+                <h3>🚀 [v1.05] - 重练模式增强与图文排版修复</h3>
+                <span class="version-date">2026-05-13</span>
+                <ul>
+                    <li>**[新增] 独立重练进度**：进入错题/收藏练习时会自动开启“临时进度模式”，允许重新作答而不影响全局统计。</li>
+                    <li>**[修复] 题目换行异常**：重构了题目显示逻辑，解决了图片与文字之间出现的意外空行/换行问题。</li>
+                    <li>**[修复] 图片对齐偏移**：通过精确的基线偏移调整，确保题目内图片与文字完美居中对齐。</li>
+                </ul>
+
+                <h3>🚀 [v1.04] - 稳定性修复与主题兼容优化</h3>
+                <span class="version-date">2026-05-13</span>
+                <ul>
+                    <li>**[修复] 导航崩溃**：解决了点击错题本/收藏夹时因废弃视图引用导致的脚本报错。</li>
+                    <li>**[优化] 自动模式边框**：增强了答题模式控制栏在系统跟随模式下的边框对比度。</li>
+                    <li>**[优化] 列表渲染**：提高了错题/收藏列表加载的健壮性。</li>
+                </ul>
+
+                <h3>🚀 [v1.03] - 界面精致化与交互增强版</h3>
+                <span class="version-date">2026-05-13</span>
+                <ul>
+                    <li>**[新增] 动态激励语**：左侧边栏欢迎语支持随机轮询。</li>
+                    <li>**[优化] UI 对齐**：统一了卡片背景色，修复了 1/2 分屏下的线条错位问题。</li>
+                    <li>**[优化] 图文混排**：优化了题目内图片的垂直对齐方式。</li>
+                </ul>
+
+                <h3>🚀 [v1.02] - 深度联动与功能恢复版</h3>
                 <span class="version-date">2026-05-12</span>
                 <ul>
-                    <li>**[新增] 全量题库导入**：支持章节练习全量导入。</li>
-                    <li>**[新增] 章节筛选**：支持按章节过滤题目，方便专项突破。</li>
-                    <li>**[新增] 题库同步脚本**：支持从 Markdown 快速更新题库数据，完美支持图片与样式。</li>
-                    <li>**[优化] 模拟卷配置**：调整为 60单+20多 的标准社工考试模式。</li>
+                    <li>**[重构] 联动筛选**：题号面板支持按章节/题型实时动态刷新。</li>
+                    <li>**[恢复] 备份管理**：重新上线了导出/导入进度功能。</li>
+                    <li>**[优化] 正确率统计**：修正了全库进度的计算逻辑。</li>
                 </ul>
+
+                <div class="highlight-box" style="margin-top: 2rem;">
+                    <p style="margin-bottom:0.5rem; font-weight: 600;">更多历史记录：</p>
+                    <p style="font-size: 0.85rem; margin-bottom: 1rem;">由于浏览器安全限制，无法直接从网页打开本地文件。请查阅项目根目录下的 <strong>CHANGELOG_DEV.md</strong> 文件获取完整变更历史。</p>
+                    <button class="btn secondary-btn" id="open-local-changelog" style="font-size: 0.8rem; padding: 0.4rem 1rem;">📖 尝试加载本地 CHANGELOG 文件</button>
+                    <input type="file" id="changelog-file-input" style="display: none;" accept=".md">
+                </div>
             </div>
             <div style="text-align: center; margin-top: 1.5rem; flex-shrink: 0;">
                 <button id="close-changelog-btn-bottom" class="btn primary-btn">看完了，关闭</button>
@@ -347,6 +384,45 @@
         };
         document.getElementById('close-changelog-btn').addEventListener('click', closeChangelog);
         document.getElementById('close-changelog-btn-bottom').addEventListener('click', closeChangelog);
+
+        // --- 加载本地 CHANGELOG 文件逻辑 ---
+        const openLocalBtn = document.getElementById('open-local-changelog');
+        const changelogInput = document.getElementById('changelog-file-input');
+        
+        if (openLocalBtn && changelogInput) {
+            openLocalBtn.addEventListener('click', () => changelogInput.click());
+            changelogInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const content = ev.target.result;
+                    // 创建一个新的弹窗或直接替换当前内容
+                    const modalContent = document.querySelector('#changelog-modal .modal-scroll-content');
+                    if (modalContent) {
+                        // 预处理 Markdown (复用页面已有的解析逻辑)
+                        let parsed = content
+                            .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                            .replace(/\*\*([\s\S]*?)\*\*/g, '<strong style="color: var(--primary-color); font-weight: 700;">$1</strong>')
+                            .replace(/`([^`]+)`/g, '<code style="background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; color: #e11d48; font-family: monospace;">$1</code>')
+                            .replace(/^# (.*$)/gm, '<h1 style="color:var(--primary-color); border-bottom:1px solid var(--border-color); padding-bottom:0.5rem;">$1</h1>')
+                            .replace(/^## (.*$)/gm, '<h2 style="margin-top:1.5rem; color:var(--text-primary);">$1</h2>')
+                            .replace(/^### (.*$)/gm, '<h3 style="margin-top:1.2rem; color:var(--primary-color);">$1</h3>')
+                            .replace(/^- (.*$)/gm, '<li style="margin-left:1rem; margin-bottom:0.4rem; list-style:disc;">$1</li>')
+                            .replace(/\n\n/g, '<br>');
+
+                        modalContent.innerHTML = `
+                            <div style="background:var(--bg-card); padding:1rem; border-radius:8px; margin-bottom:1.5rem; border:1px dashed var(--primary-color);">
+                                <p style="margin:0; font-size:0.85rem; color:var(--primary-color);">📂 已加载本地文件: <strong>${file.name}</strong></p>
+                            </div>
+                            ${parsed}
+                        `;
+                    }
+                };
+                reader.readAsText(file);
+            });
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
             function parseMarkdownInDOM(elementId) {

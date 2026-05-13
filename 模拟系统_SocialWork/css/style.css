@@ -18,7 +18,7 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --base-font-size: 13px;
+  --base-font-size: 12px;
 }
 
 /* ─── Dark Theme (手动) ─── */
@@ -484,8 +484,8 @@ body {
 /* ─── Main Content ─── */
 .main-content {
   flex: 1;
-  padding: 2rem 2rem 6rem 2rem;
-  max-width: 1200px;
+  padding: 1rem 1.5rem 4rem 1.5rem;
+  max-width: 1280px;
   margin: 0 auto;
   min-width: 0;
 }
@@ -498,7 +498,7 @@ body {
 .view-section.active {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 @keyframes fadeIn {
@@ -516,55 +516,20 @@ body {
 /* ─── Glass Card ─── */
 .glass-card {
   background: var(--surface-color);
-  border-radius: 1.5rem;
-  padding: 2rem;
+  border-radius: 1rem;
+  padding: 0; /* 修改为 0，内容由内部区域控制 padding */
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-color);
+  overflow: hidden; /* 确保内部背景不超出圆角 */
 }
 
-/* ─── Settings Panel ─── */
-.settings-panel {
-  padding: 1rem 1.5rem !important;
-}
-
-.settings-row {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.settings-controls {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.setting-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.setting-label {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-/* ─── Question Card ─── */
-.question-card {
-  display: flex;
-  flex-direction: column;
-}
-
+/* 顶部 header 依然需要 padding */
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0;
+  padding: 1.5rem 2rem;
 }
 
 .card-header-left {
@@ -595,17 +560,6 @@ body {
 }
 
 /* ─── Navigation Row ─── */
-.question-nav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding-bottom: 1.5rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
 .submit-exam-hidden {
   display: none;
 }
@@ -613,79 +567,91 @@ body {
 /* ─── Card Body (Two Columns) ─── */
 .card-body {
   display: flex;
-  gap: 2rem;
+  gap: 0;
   align-items: stretch;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-color); /* 确保背景色一致 */
 }
 
 .question-content {
-  flex: 2;
-  min-width: 280px;
+  flex: 1;
+  min-width: 0;
+  padding: 1.5rem 2rem;
+  border-right: 1px solid var(--border-color);
 }
 
 /* ─── Feedback Sidebar ─── */
 .feedback-sidebar {
   flex: 1;
-  min-width: 220px;
-  border-left: 1px solid var(--border-color);
-  padding-left: 2rem;
+  min-width: 0;
+  padding: 1.5rem 2rem;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+  background: var(--surface-color); /* 统一背景色，消除冲突 */
+}
+
+.side-nav-buttons {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.side-nav-buttons .btn {
+    flex: 1;
 }
 
 .feedback-placeholder {
   color: var(--text-secondary);
   text-align: center;
-  margin-top: 3rem;
-  font-size: 0.9rem;
-  line-height: 1.8;
+  margin-top: 2rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
 }
 
 .feedback-placeholder svg {
   opacity: 0.25;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 /* ─── Question Title ─── */
 .q-title {
-    font-size: 1.1rem;
+    font-size: 1rem;
     line-height: 1.6;
-    margin-bottom: 1.25rem;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline; /* 修改为基线对齐，有助于文字排布 */
-    gap: 2px;
+    margin-bottom: 1rem;
+    display: block; /* 回归标准块布局，解决意外换行问题 */
+    word-break: break-all;
 }
 
 /* ─── Options ─── */
 .options-list {
   display: flex;
   flex-direction: column;
-  gap: 0.875rem;
-  margin-bottom: 1.5rem;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
 }
 
 .option-btn {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 0.65rem 1rem;
-  background: var(--bg-color);
+  padding: 0.5rem 0.8rem;
+  background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: 0.875rem;
+  border-radius: 0.6rem;
   cursor: pointer;
   text-align: left;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   color: var(--text-primary);
   transition: all 0.2s ease;
 }
 
 .option-btn .opt-key {
   font-weight: 600;
-  margin-right: 1rem;
+  margin-right: 0.75rem;
   color: var(--primary-color);
-  width: 22px;
+  width: 18px;
   flex-shrink: 0;
 }
 
@@ -722,8 +688,8 @@ body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 2rem 1rem;
-  border-radius: 1rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
   animation: fadeIn 0.3s ease;
 }
 
@@ -738,9 +704,9 @@ body {
 }
 
 .feedback-result {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: 700;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .success .feedback-result {
@@ -752,50 +718,50 @@ body {
 }
 
 .real-answer {
-  font-size: 1rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
 }
 
 .real-answer strong {
   color: var(--text-primary);
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: 700;
 }
 
 /* 解析样式 */
 .explanation-area {
-  margin-top: 1.5rem;
-  padding: 1.2rem;
-  background: var(--bg-card);
-  border-radius: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--surface-color);
+  border-radius: 0.5rem;
   text-align: left;
   width: 100%;
   border: 1px dashed var(--border-color);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  box-shadow: none;
 }
 
 .explanation-title {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--primary-color);
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.5rem;
   display: flex;
   align-items: center;
 }
 
 .explanation-text {
-  font-size: 0.9rem;
-  line-height: 1.6;
+  font-size: 0.85rem;
+  line-height: 1.5;
   color: var(--text-secondary);
   margin: 0;
 }
 
 /* ─── Buttons ─── */
 .btn {
-  padding: 0.7rem 1.5rem;
-  border-radius: 0.75rem;
+  padding: 0.5rem 1.2rem;
+  border-radius: 0.6rem;
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.2s;
   border: none;
@@ -1214,9 +1180,10 @@ body.handson-mode .main-content {
             background-color: var(--bg-color);
             /* 遮盖下方内容的实体背景 */
             /* 向外延展 padding 填补 main-content 的间隙，实现完美吸顶 */
-            margin: -2rem -2rem 1.5rem -2rem;
-            padding: 2rem 2rem 0.5rem 2rem;
-            border-bottom: 1px solid var(--border-color);
+            margin: -1rem -1.5rem 1.5rem -1.5rem;
+            padding: 1rem 1.5rem 0.5rem 1.5rem;
+            border-bottom: 1px solid var(--border-color); /* 核心边框 */
+            box-shadow: 0 1px 0 var(--border-color); /* 增强边框感 */
             transition: background-color 0.3s;
         }
 
@@ -1481,12 +1448,10 @@ body.handson-mode .main-content {
 /* 题目图片样式：极致对齐 */
 .q-img {
     max-width: 100%;
-    height: 1.2em; /* 限制高度与文字高度接近，避免落差 */
+    height: 1.3em; /* 稍微增大，适应行高 */
     width: auto;
     display: inline-block;
-    vertical-align: middle;
-    margin: 0; 
+    vertical-align: -0.25em; /* 精确下移图片，使其居中对齐文字 */
+    margin: 0 0.1rem; 
     border-radius: 2px;
-    position: relative;
-    top: -1px; /* 微调向上偏移，抵消视觉落差 */
 }

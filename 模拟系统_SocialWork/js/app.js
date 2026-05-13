@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         activeIds: [],
         selectedMultiOptions: [],
         examAnswers: {},
+        sessionAnsweredMap: {}, // 新增：用于存储重练模式下的临时作答记录
     };
 
     const normalizeQuestionId = (value) => {
@@ -62,8 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const views = {
         practice:  document.getElementById('view-practice'),
         wrong:     document.getElementById('view-wrong'),
-        favorites: document.getElementById('view-favorites'),
-        handson: document.getElementById('view-handson')
+        favorites: document.getElementById('view-favorites')
     };
     const navBtns = document.querySelectorAll('.nav-btn');
     const sysBtns = document.querySelectorAll('.sys-btn');
@@ -141,7 +141,26 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateCountdown() {
         const countdownEl = document.getElementById('countdown-value');
         if (!countdownEl) return;
-        countdownEl.textContent = '勤学苦练，必有所获';
+        
+        const slogans = [
+            "勤学苦练，必有所获",
+            "持之以恒，金石为开",
+            "书山有路，勤奋为径",
+            "百尺竿头，更进一步",
+            "学而不厌，诲人不倦",
+            "博学笃志，切问近思",
+            "功不唐捐，玉汝于成",
+            "绳锯木断，水滴石穿",
+            "今日寒窗，明日辉煌",
+            "精诚所至，金石为开",
+            "不积跬步，无以至千里",
+            "锲而不舍，金石可镂",
+            "宝剑锋从磨砺出",
+            "梅花香自苦寒来"
+        ];
+        
+        const randomSlogan = slogans[Math.floor(Math.random() * slogans.length)];
+        countdownEl.textContent = randomSlogan;
     }
 
 
@@ -359,6 +378,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return count;
         }
 
+        const isRePractice = state.practiceMode === 'wrong' || state.practiceMode === 'fav';
+        const map = isRePractice ? state.sessionAnsweredMap : state.answeredMap;
+
         const isGlobalProgressMode =
             state.practiceMode === 'all' &&
             state.orderMode === 'sequential' &&
@@ -370,25 +392,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let count = 0;
         for (const qId of state.activeIds) {
-            if (state.answeredMap[qId]) count++;
+            if (map[qId]) count++;
         }
         return count;
     }
 
     // ─── Get Correct/Wrong Counts ────────────────────────────
     function getCorrectWrongCounts() {
+        const isRePractice = state.practiceMode === 'wrong' || state.practiceMode === 'fav';
+        const map = isRePractice ? state.sessionAnsweredMap : state.answeredMap;
+        
+        const isGlobalProgressMode =
+            state.practiceMode === 'all' &&
+            state.orderMode === 'sequential' &&
+            state.typeFilter === 'all';
+
         let correctCount = 0;
         let wrongCount = 0;
 
-        Object.values(state.answeredMap).forEach(record => {
-            if (record) {
-                if (record.result === 'correct') {
-                    correctCount++;
-                } else if (record.result === 'wrong') {
-                    wrongCount++;
+        if (isGlobalProgressMode) {
+            Object.values(state.answeredMap).forEach(record => {
+                if (record) {
+                    if (record.result === 'correct') correctCount++;
+                    else if (record.result === 'wrong') wrongCount++;
                 }
-            }
-        });
+            });
+        } else {
+            state.activeIds.forEach(id => {
+                const record = map[id];
+                if (record) {
+                    if (record.result === 'correct') correctCount++;
+                    else if (record.result === 'wrong') wrongCount++;
+                }
+            });
+        }
         
         return { correctCount, wrongCount };
     }
@@ -481,7 +518,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.title       = `第 ${q.id} 题 [${q.type}]`;
                 btn.dataset.id  = q.id;
 
-                const record    = state.answeredMap[q.id];
+                const isRePractice = state.practiceMode === 'wrong' || state.practiceMode === 'fav';
+                const record    = isRePractice ? state.sessionAnsweredMap[q.id] : state.answeredMap[q.id];
                 const isActive  = state.activeIds.includes(q.id);
                 const isCurrent = q.id === currentQId;
 
@@ -583,7 +621,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // 检查是否已作答（练习模式锁定题目）
-        const record = state.appMode === 'practice' ? state.answeredMap[q.id] : null;
+        const isRePractice = state.practiceMode === 'wrong' || state.practiceMode === 'fav';
+        const record = (state.appMode === 'practice') 
+            ? (isRePractice ? state.sessionAnsweredMap[q.id] : state.answeredMap[q.id]) 
+            : null;
+
         if (record) {
             state.hasAnsweredCurrent = true;
             // 还原选项颜色
@@ -679,8 +721,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const correctAnswer = q.answer.split('').sort().join('');
         const isCorrect     = finalAnswer === correctAnswer;
 
-        // 更新 answeredMap
-        state.answeredMap[q.id] = { result: isCorrect ? 'correct' : 'wrong', given: finalAnswer };
+        // 更新 answeredMap 或 sessionAnsweredMap
+        const resultRecord = { result: isCorrect ? 'correct' : 'wrong', given: finalAnswer };
+        const isRePractice = state.practiceMode === 'wrong' || state.practiceMode === 'fav';
+        
+        if (isRePractice) {
+            state.sessionAnsweredMap[q.id] = resultRecord;
+        } else {
+            state.answeredMap[q.id] = resultRecord;
+        }
 
         // 高亮选项
         qOptions.querySelectorAll('.option-btn').forEach(b => {
@@ -802,15 +851,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ─── View Switch ─────────────────────────────────────────
     function switchView(viewName) {
+        if (!views[viewName]) return;
         saveViewScroll(lastView);
 
-        Object.values(views).forEach(v => v.classList.remove('active'));
+        Object.values(views).forEach(v => {
+            if (v) v.classList.remove('active');
+        });
         views[viewName].classList.add('active');
         navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.view === viewName));
         
         if (viewName === 'wrong')     renderList(state.wrongList, wrongListContainer, '错题本');
         if (viewName === 'favorites') renderList(state.favorites, favListContainer,   '收藏夹');
-        if (viewName === 'handson' && window.handsonApp && window.handsonApp.renderHandson) window.handsonApp.renderHandson();
 
         // 恢复目标视图的滚动位置
         const targetScroll = getSavedViewScroll(viewName);
@@ -823,19 +874,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ─── Render List (Wrong / Fav) ───────────────────────────
     function renderList(idArray, container, emptyMsg) {
+        if (!container) return;
         container.innerHTML = '';
-        if (idArray.length === 0) {
+        if (!idArray || idArray.length === 0) {
             container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-secondary);">暂无数据 (${emptyMsg})</div>`;
             return;
         }
-        questionsData.filter(q => idArray.includes(q.id)).forEach(q => {
+
+        // 确保 ID 类型匹配且题目存在
+        const items = questionsData.filter(q => idArray.includes(Number(q.id)));
+
+        if (items.length === 0) {
+            container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-secondary);">未找到对应题目内容 (${emptyMsg})</div>`;
+            return;
+        }
+
+        items.forEach(q => {
             const el = document.createElement('div');
             el.className = 'list-item';
             let optHtml = '<div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.25rem;">';
-            q.options.forEach(opt => {
-                const isAns = q.answer.includes(opt.key);
-                optHtml += `<div style="font-size:0.9rem;${isAns ? 'color:var(--success-color);font-weight:600;' : 'color:var(--text-secondary);'}">${opt.key}. ${opt.text}</div>`;
-            });
+            if (q.options && Array.isArray(q.options)) {
+                q.options.forEach(opt => {
+                    const isAns = q.answer && q.answer.includes(opt.key);
+                    optHtml += `<div style="font-size:0.9rem;${isAns ? 'color:var(--success-color);font-weight:600;' : 'color:var(--text-secondary);'}">${opt.key}. ${opt.text}</div>`;
+                });
+            }
             optHtml += '</div>';
             el.innerHTML = `
                 <div class="list-item-header">
@@ -845,7 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 </div>
                 ${optHtml}
-                <div class="list-item-answer">正确答案：<span>${q.answer}</span></div>
+                <div class="list-item-answer">正确答案：<span>${q.answer || '未知'}</span></div>
                 <div class="list-item-explanation">
                     <div class="list-item-explanation-title">💡 解析：</div>
                     ${q.explanation || '暂无详细解析。'}
@@ -885,10 +948,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         startWrongPracticeBtn.addEventListener('click', () => {
             state.practiceMode = 'wrong'; state.currentIndex = 0;
+            state.sessionAnsweredMap = {}; // 开始重练时清空临时进度
             switchView('practice'); updateActiveIds(); renderQuestionPanel(); renderQuestion();
         });
         startFavPracticeBtn.addEventListener('click', () => {
             state.practiceMode = 'fav'; state.currentIndex = 0;
+            state.sessionAnsweredMap = {}; // 开始重练时清空临时进度
             switchView('practice'); updateActiveIds(); renderQuestionPanel(); renderQuestion();
         });
         exitModeBtn.addEventListener('click', () => {
