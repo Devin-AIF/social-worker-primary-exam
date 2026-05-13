@@ -102,19 +102,35 @@ async function waitForQuestionChange(page, oldStep, oldItemId, oldAnalysis) {
         }, oldItemId, { timeout: 8000 }).catch(() => {});
     }
 
-    // Step 3: 若上一题有实质解析，等待 #analysis 区也已刷新
+    // Step 3: 若上一题有实质解析，等待解析区也已刷新
     const hasOldAnalysis = oldAnalysis
         && oldAnalysis !== '无解析'
         && !oldAnalysis.startsWith('[讨论提取]')
         && !oldAnalysis.startsWith('[警告');
     if (hasOldAnalysis) {
         await page.waitForFunction((old) => {
-            // 只看第一个 .analysis.pd10（#itemlist 内的主解析区）
-            const el = document.querySelector('#answer_analysis .analysis.pd10, .answer-yes .analysis.pd10, .answer-wrong .analysis.pd10, .analysis.pd10');
-            if (!el) return true;
-            const t = (el.innerText || '').trim();
-            return !t || t !== old;
-        }, oldAnalysis, { timeout: 8000 }).catch(() => {});
+            const isVisible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                return !!(el.offsetParent || el.getClientRects().length) && style.display !== 'none' && style.visibility !== 'hidden';
+            };
+            const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
+            for (const s of selectors) {
+                const elements = Array.from(document.querySelectorAll(s));
+                for (let i = elements.length - 1; i >= 0; i--) {
+                    const el = elements[i];
+                    if (!isVisible(el)) continue;
+                    let t = (el.innerText || el.textContent || '').trim();
+                    if (t.includes('点击查看解析')) continue;
+                    t = t.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
+                    const noise = ['社会工作者考试', '实务》真题及答案'];
+                    if (t.length > 2 && !noise.some(n => t === n)) {
+                        if (t === old) return false; // 还是旧解析，继续等
+                    }
+                }
+            }
+            return true; // 没找到旧解析，说明已经刷新了或者没了
+        }, oldAnalysis, { timeout: 5000 }).catch(() => {});
     }
 
     // Step 4: 短暂等待渲染稳定
@@ -536,10 +552,18 @@ async function run() {
                     await handlePopup(page);
 
                     let data = await readQuestionData(page);
-                    // 若仍无解析，再多等一次
-                    if (data.analysis === '无解析') {
-                        await randomSleep(2000, 3000);
-                        await handlePopup(page);
+                    
+                    // 新增防护：如果答案未知或无解析，可能跌出了背题模式，或者加载较慢
+                    // 尝试点击第一个选项强制触发正确答案显示，并再次尝试拉出解析
+                    if (data.answer === '未知' || data.analysis === '无解析') {
+                        log('未能直接获取答案或解析，尝试点击选项...', 'INFO');
+                        await page.evaluate(() => {
+                            const firstOption = document.querySelector('#item_options li, .options li');
+                            if (firstOption) firstOption.click();
+                        });
+                        await randomSleep(1500, 2000);
+                        await triggerOfficialAnalysis(page);
+                        await randomSleep(1500, 2500);
                         data = await readQuestionData(page);
                     }
 
@@ -555,9 +579,14 @@ async function run() {
                             const oldItemId = data.itemId;
                             const oldAnalysis = data.analysis;
                             
-                            // 根本性修复：主动清空旧解析 DOM，防止新题无解析时读到旧数据
                             await page.evaluate(() => {
-                                document.querySelectorAll('.analysis.pd10, .right').forEach(el => el.innerText = '');
+                                document.querySelectorAll('#item_options li, .options li').forEach(el => {
+                                    el.removeAttribute('data-isanswer');
+                                    el.classList.remove('correct', 'right');
+                                });
+                                document.querySelectorAll('.right_answer, #right_answer').forEach(el => {
+                                    if(el.childNodes.length <= 1) el.innerText = '';
+                                });
                             });
                             
                             await next.click({ force: true }).catch(() => page.evaluate(() => document.querySelector('.subject-next, #next_item')?.click()));
@@ -570,8 +599,8 @@ async function run() {
                     // 检测串题（解析与上一题相同）
                     const staleAnalysis = isLikelyStaleAnalysis(data, lastSavedSnapshot);
                     if (staleAnalysis) {
-                        log(`检测到重复解析，标记为可能过期: ${chapter.title} 第 ${curr} 题`, 'WARN');
-                        data.analysis = `[警告：可能重复上一题解析] ${data.analysis}`;
+                        log(`检测到重复解析，已置为无解析: ${chapter.title} 第 ${curr} 题`, 'WARN');
+                        data.analysis = `无解析`;
                     }
                     if (!hasOfficialAnalysis(data)) {
                         log(`第 ${curr} 题无官方解析，以"无解析"保存`, 'WARN');
@@ -605,9 +634,14 @@ async function run() {
                             const oldItemId = data.itemId;
                             const oldAnalysis = data.analysis;
                             
-                            // 根本性修复：主动清空旧解析 DOM，防止新题无解析时读到旧数据
                             await page.evaluate(() => {
-                                document.querySelectorAll('.analysis.pd10, .right').forEach(el => el.innerText = '');
+                                document.querySelectorAll('#item_options li, .options li').forEach(el => {
+                                    el.removeAttribute('data-isanswer');
+                                    el.classList.remove('correct', 'right');
+                                });
+                                document.querySelectorAll('.right_answer, #right_answer').forEach(el => {
+                                    if(el.childNodes.length <= 1) el.innerText = '';
+                                });
                             });
                             
                             await next.click({ force: true }).catch(() => page.evaluate(() => document.querySelector('.subject-next, #next_item')?.click()));
