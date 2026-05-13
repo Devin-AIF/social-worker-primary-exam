@@ -27,9 +27,21 @@
             <!-- 主题切换 -->
             <div class="theme-switcher" id="theme-switcher">
                 <button class="theme-btn" data-theme="light" title="浅色模式">☀️ 浅色</button>
-                <button class="theme-btn active" data-theme="auto" title="跟随系统">🌓 自动</button>
+                <button class="theme-btn" data-theme="auto" title="跟随系统">🌓 自动</button>
                 <button class="theme-btn" data-theme="dark" title="深色模式">🌙 深色</button>
             </div>
+            <script>
+                (function() {
+                    var theme = localStorage.getItem('ai_theme') || 'auto';
+                    if (theme !== 'auto') document.documentElement.setAttribute('data-theme', theme);
+                    var btns = document.querySelectorAll('#theme-switcher .theme-btn');
+                    btns.forEach(function(btn) {
+                        if (btn.getAttribute('data-theme') === theme) {
+                            btn.classList.add('active');
+                        }
+                    });
+                })();
+            </script>
 
             <div class="nav-links">
                 <button class="nav-btn active" data-view="practice">
