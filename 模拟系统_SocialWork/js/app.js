@@ -668,6 +668,8 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (finalAnswer.includes(b.dataset.key)) b.classList.add('wrong');
         });
 
+        feedbackPlaceholder.style.display = 'none';
+
         if (isCorrect) {
             feedbackArea.className = 'feedback-area success';
             feedbackResult.innerText = '🎉 回答正确！';
