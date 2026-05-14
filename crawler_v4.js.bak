@@ -57,20 +57,6 @@ const PROJECT_ROOT = __dirname;
 const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V4'); // Markdown 文件的全局根输出目录
 const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log'); // 运行日志保存路径
 const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json'); // 断点续传的核心状态文件
-const DEBUG_DIR = path.join(PROJECT_ROOT, 'debug_screenshots'); // 错误截图目录
-if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
-
-async function takeScreenshot(page, name) {
-    const timestamp = new Date().getTime();
-    const fileName = `error_${name}_${timestamp}.png`;
-    const filePath = path.join(DEBUG_DIR, fileName);
-    try {
-        await page.screenshot({ path: filePath, fullPage: true });
-        log(`错误现场已截图: ${fileName}`, 'WARN');
-    } catch (e) {
-        log(`截图失败: ${e.message}`, 'ERROR');
-    }
-}
 
 /** 
  * 是否启用“评论区提取”作为解析后备方案。
@@ -275,68 +261,59 @@ async function ensureReciteMode(page) {
  * 本函数通过模拟用户点击“查看解析”或“显示答案”等操作来触发数据加载。
  */
 async function triggerOfficialAnalysis(page) {
-    const trigger = async () => {
-        await page.evaluate(() => {
-            const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
-            
-            // 1. 检查解析是否已经完全展开且包含真实内容
-            const getVisibleAnalysis = () => {
-                const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail'];
-                for (const s of sel) {
-                    const el = document.querySelector(s);
-                    if (isVisible(el) && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
-                }
-                return null;
-            };
-            
-            if (getVisibleAnalysis()) return; 
-
-            // 2. 触发各种可能的解析/答案按钮
-            const clickSelectors = [
-                '.click_analysis', 
-                '[data-type="analysis"]', 
-                '.analysis-btn', 
-                '.show-analysis', 
-                '.jiexi', 
-                '.answer-analysis',
-                '.btn-analysis',
-                '.show-answer',
-                '#show_answer_btn',
-                '.view-solution'
-            ];
-            
-            for (const s of clickSelectors) {
-                const els = Array.from(document.querySelectorAll(s));
-                for (const el of els) {
-                    if (isVisible(el)) { el.click(); break; }
-                }
+    await page.evaluate(() => {
+        const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
+        
+        // 1. 检查解析是否已经完全展开且包含真实内容（防止重复点击导致关闭）
+        const getVisibleAnalysis = () => {
+            const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail'];
+            for (const s of sel) {
+                const el = document.querySelector(s);
+                if (isVisible(el) && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
             }
+            return null;
+        };
+        
+        if (getVisibleAnalysis()) return; 
 
-            // 3. 特征匹配点击
-            const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
-                .filter(el => {
-                    const t = (el.innerText || '').trim();
-                    return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案') && isVisible(el);
-                });
-            textButtons.forEach(el => el.click());
-        });
-    };
+        // 2. 触发各种可能的解析/答案按钮（支持客观题和主观题）
+        const clickSelectors = [
+            '.click_analysis', 
+            '[data-type="analysis"]', 
+            '.analysis-btn', 
+            '.show-analysis', 
+            '.jiexi', 
+            '.answer-analysis',
+            '.btn-analysis',
+            '.show-answer',
+            '#show_answer_btn',
+            '.view-solution'
+        ];
+        
+        for (const s of clickSelectors) {
+            const els = Array.from(document.querySelectorAll(s));
+            for (const el of els) {
+                if (isVisible(el)) { el.click(); break; }
+            }
+        }
 
-    await trigger();
+        // 3. 针对问答题/主观题：通过按钮文本进行特征匹配点击
+        const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
+            .filter(el => {
+                const t = (el.innerText || '').trim();
+                return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案') && isVisible(el);
+            });
+        textButtons.forEach(el => el.click());
+    });
+
     // 为 Ajax 异步加载预留缓冲时间
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
     
     // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
-    const success = await page.waitForFunction(() => {
+    await page.waitForFunction(() => {
         const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail');
         return el && el.innerText.trim().length > 10 && !el.innerText.includes('点击查看解析');
-    }, { timeout: 4000 }).catch(() => false);
-
-    if (!success) {
-        log('解析加载缓慢，尝试二次触发...', 'DEBUG');
-        await trigger();
-        await page.waitForTimeout(2000);
-    }
+    }, { timeout: 3000 }).catch(() => {});
 }
 
 /**
@@ -513,8 +490,7 @@ async function readQuestionData(page) {
             options: optionsList,
             answer: getAns(),
             analysis: analysisText,
-            images,
-            fingerprint: (titleText.substring(0, 50) + optionsList.substring(0, 50)).replace(/\s/g, '')
+            images
         };
     }, ENABLE_DISCUSSION_FALLBACK);
 }
@@ -923,9 +899,6 @@ async function crawlSubject(page, subject) {
                 }
 
                 let lastWrittenCurr = currentProgress; 
-                let lastFingerprint = ''; // 数据指纹，防止重复读取旧内容
-                let stuckCount = 0;       // 页面卡死计数器
-                let retryCount = 0;       // 重复题号计数器
                 
                 while (true) {
                     await handlePopup(page);
@@ -933,7 +906,6 @@ async function crawlSubject(page, subject) {
                         await page.waitForSelector('#item_title, .item-title, .subject-title', { timeout: 15000 });
                     } catch (e) {
                         log('等待题目加载超时，尝试点击“继续”或“下一题”纠偏...', 'WARN');
-                        await takeScreenshot(page, 'timeout_waiting_title');
                         await handlePopup(page);
                         const nextBtn = await page.$('.subject-next, #next_item, a:has-text("下一题")');
                         if (nextBtn) await nextBtn.click({ force: true }).catch(() => {});
@@ -944,25 +916,6 @@ async function crawlSubject(page, subject) {
                     await randomSleep(2000, 3500);
                     
                     let data = await readQuestionData(page);
-                    
-                    // --- 核心安全机制：数据指纹校验 (防止 SPA 异步延迟导致的重复读取) ---
-                    if (data.fingerprint === lastFingerprint && lastWrittenCurr > 0) {
-                        stuckCount++;
-                        log(`检测到页面内容未刷新 (重复指纹, 重试: ${stuckCount}/5)...`, 'WARN');
-                        if (stuckCount >= 3) {
-                            log('疑似页面卡死，尝试强制刷新并重新定位...', 'ERROR');
-                            await takeScreenshot(page, 'stuck_reload');
-                            await page.reload().catch(() => {});
-                            await randomSleep(5000, 8000);
-                            await openChapterAtQuestion(page, chapter.url, lastWrittenCurr);
-                            stuckCount = 0;
-                        }
-                        await randomSleep(2000, 4000);
-                        continue;
-                    }
-                    stuckCount = 0; // 成功读取新题，重置计数
-                    lastFingerprint = data.fingerprint;
-
                     const [curr, totalNum] = data.step.split('/').map(Number);
                     
                     // --- 核心安全机制：顺序校验与强制纠偏 ---
