@@ -762,25 +762,17 @@ async function crawlSubject(page, subject) {
         log(`识别到 ${chapters.length} 个章节`, 'INFO');
 
         for (const chapter of chapters) {
-            // 状态保存带上科目名，确保同一进度记录不会跨科目冲突
-            const statusKey = `${subjectName}_${cat.name}_${chapter.title}_${chapter.id}`;
+            // 核心修复：直接使用固定的 subject.name 作为 Key，防止 DOM 读取不稳定导致进度记录失败
+            const statusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
-            // 综合判断断点续传进度
-            const fileCount = getCompletedCount(outputFile);
-            let skipCount = 0;
+            // 综合判断断点续传进度 (恢复到最稳健的 MAX 策略)
+            let savedInfo = completionStatus[statusKey] || {};
+            if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
             
-            // 策略：如果本地 Markdown 文件已经有内容，则以文件题数和 JSON 记录的较大值为准
-            // 如果文件不存在或为空，则强制从 0 开始（即第一题），这允许用户通过删除文件来重抓
-            if (fileCount > 0) {
-                let savedInfo = completionStatus[statusKey] || {};
-                if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
-                skipCount = Math.max(Number(savedInfo.completed) || 0, fileCount);
-            } else {
-                log(`[初始化] 目标文件为空，将从第一题开始抓取`, 'DEBUG');
-                skipCount = 0;
-            }
+            // 取本地文件已存题数和 JSON 记录的最大值，确保绝对不漏
+            const skipCount = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
             
             const totalGoal = chapter.total || 0;
             if (totalGoal > 0 && skipCount >= totalGoal) {
@@ -788,12 +780,12 @@ async function crawlSubject(page, subject) {
                 continue;
             }
 
-            log(`>> 准备抓取: ${chapter.title} (ID: ${chapter.id}, 预期起始进度: ${skipCount})`, 'INFO');
+            log(`>> 准备抓取: ${chapter.title} (ID: ${chapter.id}, 断点进度: ${skipCount})`, 'INFO');
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
 
             try {
-                // 跳转到指定位置
+                // 开启抓取前先确保页面处于背题模式或准备就绪
                 await openChapterAtQuestion(page, chapter.url, skipCount);
                 if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
