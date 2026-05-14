@@ -902,6 +902,16 @@ async function crawlSubject(page, subject) {
                     }
 
                     // 前进到下一题
+                    if (curr < totalNum) {
+                        const next = await page.$('.subject-next, #next_item');
+                        if (next) {
+                            const old = { step: data.step, id: data.itemId };
+                            await next.click({ force: true });
+                            await waitForQuestionChange(page, old.step, old.id);
+                        } else {
+                            log('\n未发现下一题按钮，尝试通过答题卡跳转...', 'DEBUG');
+                            break; 
+                        }
                     } else {
                         log(`\n>> [完成] ${chapter.title}`, 'INFO');
                         completionStatus[statusKey] = {
