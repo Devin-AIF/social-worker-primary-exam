@@ -328,8 +328,8 @@ async function triggerOfficialAnalysis(page) {
     
     // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
     const success = await page.waitForFunction(() => {
-        const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail');
-        return el && el.innerText.trim().length > 10 && !el.innerText.includes('点击查看解析');
+        const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail, .subject-answer, .answer-yes, .answer-wrong');
+        return el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析');
     }, { timeout: 4000 }).catch(() => false);
 
     if (!success) {
