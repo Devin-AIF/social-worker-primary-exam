@@ -435,7 +435,7 @@ async function downloadImage(url, dest) {
 
 async function run() {
     log('正在开启 V17.1 全面修复抓取模式...', 'INFO');
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     // 不拦截任何网络请求，防止误拦解析页
     const page = await context.newPage();
@@ -497,22 +497,61 @@ async function run() {
                         const practice = Array.from(p.querySelectorAll('a')).find(el => el.innerText.includes('练习模式'));
                         if (practice) url = practice.href;
                     }
-                    return { title, url, totalCount };
+
+                    // 提取唯一标识
+                    let id = '';
+                    const paperMatch = url.match(/paper_id[\/=](\d+)/);
+                    if (paperMatch) id = 'paper-' + paperMatch[1];
+                    else {
+                        const knowMatch = url.match(/know_id[\/=](\d+)/);
+                        if (knowMatch) id = 'know-' + knowMatch[1];
+                        else {
+                            const productMatch = url.match(/product_id[\/=](\d+)/);
+                            if (productMatch) id = 'prod-' + productMatch[1];
+                        }
+                    }
+
+                    return { title, url, totalCount, id };
                 })
-                .filter((chapter, index, list) => list.findIndex(item => item.title === chapter.title) === index);
+                .filter((chapter, index, list) => list.findIndex(item => item.url === chapter.url) === index);
         });
 
+        // 记录标题出现次数，用于辅助迁移旧目录
+        const titleFirstSeen = {};
+
         for (const chapter of chapters) {
-            const statusKey = `${cat.name}_${chapter.title}`;
             const safeTitle = sanitizeFileName(chapter.title);
-            const chapterDir = path.join(typeDir, safeTitle);
+            const folderName = chapter.id ? `${safeTitle}_${chapter.id}` : safeTitle;
+            const statusKey = `${cat.name}_${chapter.title}_${chapter.id}`;
+            const oldStatusKey = `${cat.name}_${chapter.title}`;
+
+            const chapterDir = path.join(typeDir, folderName);
+            const legacyDir = path.join(typeDir, safeTitle);
+
+            // 自动迁移逻辑：如果是该标题第一次出现，且存在旧目录，则重命名为带ID的新目录
+            if (chapter.id && !fs.existsSync(chapterDir) && fs.existsSync(legacyDir) && !titleFirstSeen[chapter.title]) {
+                try {
+                    fs.renameSync(legacyDir, chapterDir);
+                    log(`自动迁移目录: ${safeTitle} -> ${folderName}`, 'INFO');
+                    if (completionStatus[oldStatusKey] && !completionStatus[statusKey]) {
+                        completionStatus[statusKey] = completionStatus[oldStatusKey];
+                    }
+                } catch (e) {
+                    log(`迁移目录失败: ${e.message}`, 'WARN');
+                }
+            }
+            titleFirstSeen[chapter.title] = true;
+
             const imgDir = path.join(chapterDir, 'images');
             const outputFile = path.join(chapterDir, `${safeTitle}.md`);
 
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
-            const skipCount = Math.max(Number(completionStatus[statusKey]) || 0, getCompletedCount(outputFile));
+            const skipCount = Math.max(
+                Number(completionStatus[statusKey]) || Number(completionStatus[oldStatusKey]) || 0,
+                getCompletedCount(outputFile)
+            );
             if (chapter.totalCount > 0 && skipCount >= chapter.totalCount) {
                 log(`跳过已完成章节: ${chapter.title} (${skipCount}/${chapter.totalCount})`, 'INFO');
                 completionStatus[statusKey] = skipCount;
