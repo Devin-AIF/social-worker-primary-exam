@@ -243,45 +243,41 @@ async function ensureReciteMode(page) {
  * 本函数采取“广撒网”策略，遍历点击所有疑似解析按钮的节点。
  */
 async function triggerOfficialAnalysis(page) {
-    // 1. 首先判断是否已经存在有效的解析文本。如果存在，就不再乱点按钮。
-    const hasAnalysis = await page.evaluate(() => {
-        const getVisibleText = (selector) => {
-            const el = document.querySelector(selector);
-            if (!el || el.offsetParent === null) return '';
-            return el.innerText.trim();
-        };
-        const text = getVisibleText('.analysis.pd10, #answer_analysis .analysis, .analysis, #analysis');
-        return text.length > 5 && !text.includes('点击查看解析');
-    });
-
-    if (hasAnalysis) return;
-
-    // 2. 尝试点击查看解析按钮
     await page.evaluate(() => {
-        const selectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis'];
-        for (const s of selectors) {
-            const el = document.querySelector(s);
-            if (el && el.offsetParent !== null) { el.click(); return; }
+        // 1. 检查解析是否已经显示
+        const analysisArea = document.querySelector('.analysis.pd10, #answer_analysis .analysis, .analysis, #answer_analysis, #analysis');
+        const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
+        
+        if (isVisible(analysisArea) && analysisArea.innerText.length > 10 && !analysisArea.innerText.includes('点击查看解析')) {
+            return; 
         }
-        // 后备文本匹配
-        const tabs = Array.from(document.querySelectorAll('a, button, span, div')).find(el => {
-            const t = (el.innerText || '').trim();
-            return (t === '查看解析' || t === '解析' || t === '参考解析') && el.offsetParent !== null;
-        });
-        if (tabs) tabs.click();
+
+        const clickIfVisible = (selector) => {
+            const elements = Array.from(document.querySelectorAll(selector));
+            for (const el of elements) {
+                if (isVisible(el)) { el.click(); return true; }
+            }
+            return false;
+        };
+
+        // 2. 触发解析按钮
+        if (!clickIfVisible('.click_analysis')) {
+            if (!clickIfVisible('[data-type="analysis"]')) {
+                clickIfVisible('.analysis-btn, .show-analysis, .jiexi, .answer-analysis');
+            }
+        }
+
+        // 3. 后备方案：通过文本特征查找按钮
+        const tabs = Array.from(document.querySelectorAll('a, button, span, div'))
+            .filter(el => {
+                const t = (el.innerText || '').trim();
+                return (t === '查看解析' || t === '解析' || t === '参考解析') && isVisible(el);
+            });
+        tabs.forEach(el => el.click());
     });
 
-    // 3. 动态等待解析内容出现 (最多等待 3 秒)
-    try {
-        await page.waitForFunction(() => {
-            const el = document.querySelector('.analysis.pd10, #answer_analysis .analysis, .analysis, #analysis');
-            if (!el || el.offsetParent === null) return false;
-            const t = el.innerText.trim();
-            return t.length > 5 && !t.includes('点击查看解析');
-        }, { timeout: 3000 });
-    } catch (e) {
-        // 等待超时，可能这题真没有解析，或者按钮没生效，属于正常情况，不抛异常
-    }
+    // 动态等待解析内容出现 (最多等待 3 秒)
+    await page.waitForTimeout(1000);
 }
 
 /**
@@ -339,50 +335,37 @@ async function readQuestionData(page) {
                 const el = document.querySelector(s);
                 if (el && el.innerText.includes('/')) return el.innerText.trim();
             }
-            return '1/1';
+            return '0/0';
         };
         const step = getStep();
 
         // 核心：原地提取逻辑（不克隆，确保 innerText 格式完美）
         const processImages = (container, prefix) => {
             if (!container) return '';
-            
-            // 1. 记录并标记图片位置
             const imgs = Array.from(container.querySelectorAll('img'));
             const originalDisplays = imgs.map(img => img.style.display);
-            
             imgs.forEach((img, idx) => {
                 const src = img.getAttribute('src');
                 if (src) {
                     const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
                     images.push({ name, url: src });
-                    // 在图片前插入 Markdown 标记，不删除图片
                     const span = document.createElement('span');
                     span.className = 'gemini-img-marker';
-                    span.innerText = `![图](images/${name})`;
+                    span.innerText = `![图](./images/${name})`; // 修正路径
                     img.parentNode.insertBefore(span, img);
-                    img.style.display = 'none'; // 临时隐藏
+                    img.style.display = 'none'; 
                 }
             });
-
-            // 2. 获取包含换行的完美格式
             const text = container.innerText.trim();
-
-            // 3. 还原 DOM 环境
             container.querySelectorAll('.gemini-img-marker').forEach(el => el.remove());
             imgs.forEach((img, i) => img.style.display = originalDisplays[i]);
-
             return text;
         };
 
-        // 1. 提取题目
         const titleText = processImages(document.querySelector('#item_title, .item-title, .subject-title'), 'tit');
-
-        // 2. 提取选项
         const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li')).filter(isVisible);
         const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
 
-        // 3. 提取官方解析 (纯净版，不使用危险的截断替换)
         let analysisText = '无解析';
         const analysisSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
         for (const s of analysisSelectors) {
@@ -390,24 +373,18 @@ async function readQuestionData(page) {
             for (let i = elements.length - 1; i >= 0; i--) {
                 const el = elements[i];
                 if (isVisible(el)) {
-                    const rawAnalysis = processImages(el, 'ans');
-                    if (rawAnalysis && !rawAnalysis.includes('点击查看解析')) {
-                        // 移除开头可能多余的“参考解析”等前导文本，但不使用危险的全局截断
-                        let cleanText = rawAnalysis.replace(/^[\s\n]*(参考)?解析[：:\n\s]*/i, '').trim();
-                        if (cleanText.length > 0) {
-                            analysisText = cleanText;
-                            break;
-                        } else if (rawAnalysis.length > 5) { // 作为回退方案，如果正则意外清空，至少保留原始内容
-                            analysisText = rawAnalysis;
-                            break;
-                        }
-                    }
+                    const t = el.innerText.trim();
+                    if (t.includes('点击查看解析')) continue;
+                    let rawAnalysis = processImages(el, 'ans');
+                    // 修正正则，更激进地清除前导文字
+                    let replaced = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
+                    analysisText = replaced || rawAnalysis;
+                    if (analysisText.length > 5 && analysisText !== '无解析') break;
                 }
             }
             if (analysisText !== '无解析') break;
         }
 
-        // 4. 讨论区后备
         if (analysisText === '无解析' && enableDiscussionFallback) {
             const talks = Array.from(document.querySelectorAll('.tiku-talk-list li'));
             for (let i = talks.length - 1; i >= 0; i--) {
@@ -421,7 +398,6 @@ async function readQuestionData(page) {
             }
         }
 
-        // 5. 提取答案
         const getAns = () => {
             const opts = Array.from(document.querySelectorAll('#item_options li, .options li'));
             const rights = opts
@@ -924,10 +900,10 @@ async function crawlSubject(page, subject) {
 
                     retryCount = 0; // 成功前进，重置重试计数
 
-                    // 3. 核心保护：严禁写入非正数或小于断点的题号，防止“从0开始”或覆盖
+                    // 3. 核心保护：严禁写入非正数（排除 SPA 渲染未就绪状态）
                     if (curr <= 0) {
-                        log(`检测到非法题号 ${curr}，等待重试...`, 'WARN');
-                        await randomSleep(3000, 5000);
+                        log(`检测到数据未就绪 (题号: ${curr})，等待刷新...`, 'DEBUG');
+                        await randomSleep(2000, 3000);
                         continue;
                     }
 
