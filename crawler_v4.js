@@ -817,7 +817,54 @@ async function crawlSubject(page, subject) {
             } catch (e) { log(`抓取异常: ${e.message}`, 'ERROR'); }
         }
     }
-    log('所有任务圆满完成！', 'INFO');
+    log(`\n=== 科目 [${subject.name}] 全部分类抓取完毕 ===`, 'INFO');
+}
+
+/**
+ * 全自动主入口：登录 -> 遍历5套题库 -> 逐一切换并抓取
+ */
+async function run() {
+    log('正在开启 V19.0 全自动多题库版...', 'INFO');
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // 自动登录
+    try {
+        log('尝试自动登录...', 'INFO');
+        await page.goto(LOGIN_URL);
+        await page.waitForTimeout(2000);
+        await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
+        await page.fill('input[placeholder*="手机号"]', AUTH.user);
+        await page.fill('input[placeholder*="密码"]', AUTH.pass);
+        await page.click('.login-form-btn');
+        await page.waitForTimeout(6000);
+    } catch (e) { log('登录流程可能存在问题', 'WARN'); }
+
+    // 5 套题库的完整清单（从网站 HTML 中提取）
+    const ALL_SUBJECTS = [
+        { name: '2026年初级社会工作者《初级社会工作实务》考试题库', productId: '1525' },
+        { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' },
+        { name: '2026年中级社会工作者《中级社会工作法规与政策》考试题库', productId: '39' },
+        { name: '2026年中级社会工作者《中级社会工作综合能力》考试题库', productId: '316' },
+        { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
+    ];
+
+    log(`\n===========================================================`, 'INFO');
+    log(`共 ${ALL_SUBJECTS.length} 套题库待处理，开始全自动遍历...`, 'INFO');
+    log(`===========================================================\n`, 'INFO');
+
+    for (let i = 0; i < ALL_SUBJECTS.length; i++) {
+        const subject = ALL_SUBJECTS[i];
+        log(`\n★★★ [${i + 1}/${ALL_SUBJECTS.length}] 开始处理: ${subject.name} ★★★`, 'INFO');
+        try {
+            await crawlSubject(page, subject);
+        } catch (e) {
+            log(`科目 [${subject.name}] 抓取过程中出现异常: ${e.message}`, 'ERROR');
+        }
+    }
+
+    log('\n★★★ 所有 5 套题库全部处理完毕！★★★', 'INFO');
     await browser.close();
     rl.close();
 }
