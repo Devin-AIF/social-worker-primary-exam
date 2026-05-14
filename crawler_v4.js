@@ -847,7 +847,7 @@ async function crawlSubject(page, subject) {
             if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
             
             // 2. 核心优化：进度恢复策略
-            // 优先遵循 JSON 状态文件，MD 文件仅作为辅助参考（当 JSON 为 0 但文件已存在时，可能需要清理文件或跳过）
+            const totalGoal = chapter.total || savedInfo.total || 0;
             const jsonProgress = Number(savedInfo.completed) || 0;
             const mdProgress = getCompletedCount(outputFile);
             
