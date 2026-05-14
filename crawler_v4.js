@@ -853,9 +853,10 @@ async function crawlSubject(page, subject) {
             
             let currentProgress = jsonProgress;
             
-            // 如果 JSON 记录落后于 MD 文件（通常发生在上次运行中途崩溃），则取 MD 文件的值以防重复抓取
-            if (mdProgress > jsonProgress) {
-                log(`检测到本地 MD 文件已有 ${mdProgress} 题，将从该位置恢复。`, 'WARN');
+            // 进度纠偏：只有当 JSON 有记录且 MD 文件更领先时，才进行前移修正（防止上次运行崩溃未保存 JSON）
+            // 如果 JSON 为 0，说明用户可能手动重置了进度，此时我们严格遵守 0 并允许后续逻辑清理旧 MD 文件
+            if (jsonProgress > 0 && mdProgress > jsonProgress) {
+                log(`检测到本地 MD 文件已有 ${mdProgress} 题，将从该位置恢复以防重复。`, 'WARN');
                 currentProgress = mdProgress;
             }
 
