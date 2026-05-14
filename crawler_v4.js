@@ -966,7 +966,6 @@ async function crawlSubject(page, subject) {
             } catch (e) { log(`抓取异常: ${e.message}`, 'ERROR'); }
         }
     }
-    }
     
     // 标记整个科目完成
     completionStatus[`SUBJECT_FINISHED_${subject.name}`] = {
