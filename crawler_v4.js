@@ -130,15 +130,11 @@ async function handlePopup(page) {
         ];
         blockers.forEach(s => {
             document.querySelectorAll(s).forEach(el => {
-                // 加固：如果遮罩层内部包含“解析”字样或相关 ID，则不移除，防止误删内容
-                const text = el.innerText || '';
-                const isLikelyContent = el.id?.includes('analysis') || el.className?.includes('analysis') || text.includes('解析');
-                if (!isLikelyContent) el.remove();
-                else {
-                    // 如果是内容但被遮挡，尝试强制显示
-                    el.style.zIndex = '1'; 
-                    el.style.display = 'block';
-                }
+                // 终极安全措施：绝不物理删除任何元素，只做隐藏和置底处理
+                el.style.visibility = 'hidden';
+                el.style.pointerEvents = 'none';
+                el.style.zIndex = '-9999';
+                el.style.display = 'none';
             });
         });
 
@@ -270,20 +266,36 @@ async function readQuestionData(page) {
         const images = [];
         const step = document.querySelector('#item_step, .item-step')?.innerText.trim() || '0/0';
 
-        // 核心：通用图片提取与替换逻辑
+        // 核心：原地提取逻辑（不克隆，确保 innerText 格式完美）
         const processImages = (container, prefix) => {
             if (!container) return '';
-            const clone = container.cloneNode(true);
-            clone.querySelectorAll('img').forEach((img, idx) => {
+            
+            // 1. 记录并标记图片位置
+            const imgs = Array.from(container.querySelectorAll('img'));
+            const originalDisplays = imgs.map(img => img.style.display);
+            
+            imgs.forEach((img, idx) => {
                 const src = img.getAttribute('src');
                 if (src) {
                     const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
                     images.push({ name, url: src });
-                    img.replaceWith(`![图](images/${name})`);
+                    // 在图片前插入 Markdown 标记，不删除图片
+                    const span = document.createElement('span');
+                    span.className = 'gemini-img-marker';
+                    span.innerText = `![图](images/${name})`;
+                    img.parentNode.insertBefore(span, img);
+                    img.style.display = 'none'; // 临时隐藏
                 }
             });
-            // 修复：克隆节点未挂载时 innerText 为空，必须使用 textContent
-            return clone.textContent.trim();
+
+            // 2. 获取包含换行的完美格式
+            const text = container.innerText.trim();
+
+            // 3. 还原 DOM 环境
+            container.querySelectorAll('.gemini-img-marker').forEach(el => el.remove());
+            imgs.forEach((img, i) => img.style.display = originalDisplays[i]);
+
+            return text;
         };
 
         // 1. 提取题目
@@ -641,14 +653,25 @@ async function run() {
 
                     // 2. 核心防御：防止原地踏步（如果当前题号已经被写入过，则不再重复写入）
                     if (curr <= lastWrittenCurr) {
-                        log(`检测到重复题号 ${curr}，尝试再次点击下一题...`, 'WARN');
+                        retryCount++;
+                        log(`检测到重复题号 ${curr} (重试: ${retryCount}/5)，尝试补救跳转...`, 'WARN');
+                        
+                        // 强制清理遮罩并点击下一题
+                        await handlePopup(page);
                         const next = await page.$('.subject-next, #next_item');
                         if (next && curr < totalNum) {
                             const old = { step: data.step, id: data.itemId };
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
-                            retryCount++;
-                            if (retryCount > 5) throw new Error(`卡在第 ${curr} 题无法前进，已重试 5 次`);
+                            
+                            if (retryCount > 4) {
+                                log('补救失败，尝试通过答题卡强行跳转下一题', 'WARN');
+                                await page.evaluate((idx) => {
+                                    const cards = document.querySelectorAll('#tiku_sheet_card li');
+                                    if (cards[idx]) cards[idx].click();
+                                }, curr); // 注意：curr 是题号，索引是 curr
+                                await randomSleep(3000, 5000);
+                            }
                             continue;
                         } else break;
                     }
