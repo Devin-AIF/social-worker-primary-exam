@@ -435,7 +435,7 @@ async function downloadImage(url, dest) {
 
 async function run() {
     log('正在开启 V17.1 全面修复抓取模式...', 'INFO');
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     // 不拦截任何网络请求，防止误拦解析页
     const page = await context.newPage();
