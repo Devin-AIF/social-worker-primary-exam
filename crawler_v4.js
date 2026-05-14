@@ -587,6 +587,13 @@ async function crawlSubject(page, subject) {
     const subjectDir = path.join(OUTPUT_DIR, subjectName);
     if (!fs.existsSync(subjectDir)) fs.mkdirSync(subjectDir, { recursive: true });
 
+    // 0. 核心效率优化：检查题库是否整体已完成
+    const subjectStatusKey = `SUBJECT_FINISHED_${subject.name}`;
+    if (completionStatus[subjectStatusKey]) {
+        log(`\n[跳过] 题库 [${subject.name}] 已整体标记为完成，直接跳过。`, 'INFO');
+        return;
+    }
+
     // 先切换到该题库：访问题库列表页并点击对应 radio
     const TIKU_LIST_URL = 'https://www.xs507.com/Tiku/Tikulist/index.html';
     log(`\n正在切换题库到: ${subject.name} (product_id=${subject.productId})`, 'INFO');
@@ -959,7 +966,15 @@ async function crawlSubject(page, subject) {
             } catch (e) { log(`抓取异常: ${e.message}`, 'ERROR'); }
         }
     }
-    log(`\n=== 科目 [${subject.name}] 全部分类抓取完毕 ===`, 'INFO');
+    }
+    
+    // 标记整个科目完成
+    completionStatus[`SUBJECT_FINISHED_${subject.name}`] = {
+        isFinished: true,
+        updatedAt: new Date().toLocaleString()
+    };
+    saveStatus();
+    log(`\n★★★ [完成] 科目 [${subject.name}] 所有内容已处理完毕，标记为整体完成。 ★★★`, 'INFO');
 }
 
 /**
