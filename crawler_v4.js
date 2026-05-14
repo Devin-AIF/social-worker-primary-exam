@@ -21,8 +21,9 @@ const AUTH = {
 // BASE_URL 保留备用（当前未直接引用）
 // const BASE_URL = 'https://www.xs507.com';
 const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
-const OUTPUT_DIR = './抓取结果_V4';
-const LOG_FILE = './crawler.log';
+const PROJECT_ROOT = __dirname;
+const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V4');
+const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log');
 const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json');
 const ENABLE_DISCUSSION_FALLBACK = true;
 const SINGLE_QUESTION_TEST_MODE = false;
@@ -371,7 +372,9 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         await page.waitForSelector('#tiku_sheet_card li', { timeout: 8000 }).catch(() => {});
         await page.evaluate((index) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li');
-            if (cards[index]) cards[index].click();
+            // 如果要跳转的题号超过了总数，就点最后一题（用于快速触发完成逻辑）
+            const target = Math.min(index, cards.length - 1);
+            if (target >= 0 && cards[target]) cards[target].click();
         }, questionIndex);
         await randomSleep(3500, 5500);
         await handlePopup(page);
@@ -455,6 +458,7 @@ async function run() {
     } catch (e) { log(`登录过程可能存在问题: ${e.message}`, 'WARN'); }
 
     const CATEGORIES = [
+        { name: '历年真题', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/1.html' },
         { name: '模拟试卷', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/2.html' }
     ];
 
@@ -483,16 +487,17 @@ async function run() {
                     let title = a.innerText.trim();
                     let url = a.href;
                     let totalCount = 0;
-                    const p = a.closest('li, tr, .big');
+                    const p = a.closest('li, tr, .big, .item');
                     if (p) {
-                        const tEl = p.querySelector('.title, .name, td:first-child');
+                        const tEl = p.querySelector('.title, .name, td:first-child, .item-title');
                         if (tEl) title = tEl.innerText.trim();
-                        const alreadyEl = p.querySelector('.already');
-                        if (alreadyEl && alreadyEl.innerText.includes('/')) {
-                            const match = alreadyEl.innerText.match(/\/(\d+)/);
-                            if (match) totalCount = parseInt(match[1], 10);
-                        }
-                        const practice = Array.from(p.querySelectorAll('a')).find(el => el.innerText.includes('练习模式'));
+                        
+                        // 增强总数识别：匹配 "共 100 题" 或 "0/100"
+                        const pText = p.innerText;
+                        const match = pText.match(/共\s*(\d+)\s*题/) || pText.match(/\/(\d+)/);
+                        if (match) totalCount = parseInt(match[1], 10);
+                        
+                        const practice = Array.from(p.querySelectorAll('a')).find(el => el.innerText.includes('练习模式') || el.innerText.includes('背题模式'));
                         if (practice) url = practice.href;
                     }
 
@@ -515,7 +520,7 @@ async function run() {
         });
 
         log(`识别到 ${chapters.length} 个章节/试卷`, 'INFO');
-        chapters.forEach(c => log(` - ${c.title} (ID: ${c.id})`, 'DEBUG'));
+        chapters.forEach(c => log(` - ${c.title} (ID: ${c.id}, 题数: ${c.totalCount})`, 'DEBUG'));
 
         // 记录标题出现次数，用于辅助迁移旧目录
         const titleFirstSeen = {};
@@ -529,7 +534,7 @@ async function run() {
             const chapterDir = path.join(typeDir, folderName);
             const legacyDir = path.join(typeDir, safeTitle);
 
-            // 自动迁移逻辑：如果是该标题第一次出现，且存在旧目录，则重命名为带ID的新目录
+            // 自动迁移逻辑
             if (chapter.id && !fs.existsSync(chapterDir) && fs.existsSync(legacyDir) && !titleFirstSeen[chapter.title]) {
                 try {
                     fs.renameSync(legacyDir, chapterDir);
@@ -550,17 +555,23 @@ async function run() {
             if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
             const skipCount = Math.max(
-                Number(completionStatus[statusKey]) || Number(completionStatus[oldStatusKey]) || 0,
+                Number(completionStatus[statusKey]) || 0,
+                Number(completionStatus[oldStatusKey]) || 0,
                 getCompletedCount(outputFile)
             );
-            if (chapter.totalCount > 0 && skipCount >= chapter.totalCount) {
-                log(`跳过已完成章节: ${chapter.title} (${skipCount}/${chapter.totalCount})`, 'INFO');
-                completionStatus[statusKey] = skipCount;
-                saveStatus();
+            
+            // 改进：彻底跳过逻辑
+            if ((chapter.totalCount > 0 && skipCount >= chapter.totalCount) || (chapter.totalCount === 0 && skipCount > 0 && getCompletedCount(outputFile) > 0)) {
+                log(`[跳过] 已完成章节: ${chapter.title} (进度: ${skipCount}/${chapter.totalCount || '?'})`, 'INFO');
+                // 确保状态同步
+                if (!completionStatus[statusKey] || completionStatus[statusKey] < skipCount) {
+                    completionStatus[statusKey] = skipCount;
+                    saveStatus();
+                }
                 continue;
             }
 
-            log(`>> 正在抓取: ${chapter.title} (起步题号: ${skipCount + 1})`, 'INFO');
+            log(`>> 正在检查: ${chapter.title} (已抓取: ${skipCount})`, 'INFO');
             try {
                 await openChapterAtQuestion(page, chapter.url, skipCount);
             } catch (e) { log(`尝试开启背题模式失败: ${e.message}`, 'DEBUG'); }
