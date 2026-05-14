@@ -1,0 +1,28 @@
+<ul class="list-count">
+                            <li class="li1">
+                                <a href="/Tiku/Product/index/product_id/1526/type/0" target="_blank">
+                                    <b>章节练习</b>
+                                    <span>12章节/1043题</span>
+                                    <span>已做<u>0</u>/错题<u>0</u></span>
+                                </a>
+                            </li>
+
+                            <li class="li2">
+                                    <a href="/Tiku/Product/index/product_id/1526/type/1" target="_blank">
+                                        <b>历年真题</b>
+                                        <span>7套/542题</span>
+                                        <span>已做<u>0</u>/<u>错题0</u></span>
+                                    </a>
+                                </li>                            <li class="li3">
+                                    <a href="/Tiku/Product/index/product_id/1526/type/2" target="_blank">
+                                        <b>模拟试卷</b>
+                                        <span>8套/636题</span>
+                                        <span>已做<u>0</u>/错题<u>0</u></span>
+                                    </a>
+                                </li>                                                                                                                <li class="li7">
+                                    <a data-url="practice.html" href="/Tiku/Product/index/product_id/1526/type/2" href-bk="/Tiku/Tikulist/transfermokao?pid=1526" target="_blank">
+                                        <b>仿真考场</b>
+                                        <span>8套/636题</span>
+                                        <span>已做<u>0</u>/错题<u>0</u></span>
+                                    </a>
+                                </li>                        </ul>
