@@ -17,16 +17,27 @@ const path = require('path');
 const https = require('https');
 
 // --- 配置与常量 ---
+/** 
+ * 登录凭证配置 
+ * 优先从环境变量获取，若未设置则使用默认测试账号 
+ */
 const AUTH = {
     user: process.env.XS507_USER || '13510922043',
     pass: process.env.XS507_PASS || '265567'
 };
 
 const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
+
+// 目录路径常量
 const PROJECT_ROOT = __dirname;
-const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V4');
-const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log');
-const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json');
+const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V4'); // Markdown 文件的全局根输出目录
+const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log'); // 运行日志保存路径
+const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json'); // 断点续传的核心状态文件
+
+/** 
+ * 是否启用“评论区提取”作为解析后备方案。
+ * 若开启，当页面未显示官方解析时，将尝试在 `.tiku-talk-list` 寻找带“老师”关键字的评论。
+ */
 const ENABLE_DISCUSSION_FALLBACK = true;
 
 // --- 状态与记录初始化 ---
@@ -38,6 +49,9 @@ if (fs.existsSync(STATUS_FILE)) {
 
 /**
  * 辅助函数：清洗文件名
+ * 移除 Windows/Mac 系统中不允许作为文件名的特殊字符
+ * @param {string} name 原始章节标题
+ * @returns {string} 可安全用作文件或文件夹名称的字符串
  */
 function sanitizeFileName(name) {
     return name.replace(/[\\/:"*?<>|]/g, '_');
@@ -45,17 +59,22 @@ function sanitizeFileName(name) {
 
 /**
  * 辅助函数：读取本地 MD 已抓取数量
+ * 用于验证本地生成的 Markdown 文件中实际保存了多少道题，辅助断点续传逻辑，防止空洞。
+ * @param {string} outputFile Markdown 文件路径
+ * @returns {number} 文件内已生成的题目数量
  */
 function getCompletedCount(outputFile) {
     if (!fs.existsSync(outputFile)) return 0;
     try {
         const content = fs.readFileSync(outputFile, 'utf-8');
+        // 根据 Markdown 的二级标题标记统计题目数
         return (content.match(/## 第 \d+ 题/g) || []).length;
     } catch (e) { return 0; }
 }
 
 /**
  * 持久化进度
+ * 将内存中的 completionStatus 字典写入 JSON 文件，供下次启动时恢复
  */
 function saveStatus() {
     try { fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); } catch (e) {}
@@ -63,6 +82,9 @@ function saveStatus() {
 
 /**
  * 记录日志
+ * 在终端输出的同时，追加写入到 crawler.log 中，附带 ISO 格式时间戳
+ * @param {string} message 日志内容
+ * @param {string} type 日志级别 (INFO, WARN, ERROR, DEBUG)
  */
 function log(message, type = 'INFO') {
     const timestamp = new Date().toISOString();
@@ -71,35 +93,47 @@ function log(message, type = 'INFO') {
     console.log(formattedMessage.trim());
 }
 
+/**
+ * 辅助函数：基础异步等待
+ * @param {number} ms 毫秒数
+ */
 async function sleep(ms) {
     await new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * 辅助函数：范围随机异步等待
+ * 用于模拟人类不规律的点击间隔，降低被风控（Rate Limit）的概率
+ * @param {number} min 最小等待时间（毫秒）
+ * @param {number} max 最大等待时间（毫秒）
+ */
 async function randomSleep(min, max) {
     const ms = Math.floor(Math.random() * (max - min + 1)) + min;
     await sleep(ms);
 }
 
 /**
- * 全量恢复：处理遮罩和弹窗拦截
+ * 全量恢复：处理遮罩和弹窗拦截 (核心反风控逻辑)
+ * 定期清理页面上的遮罩层，防止 Playwright 的 click 动作被拦截。
+ * @param {import('playwright').Page} page Playwright 页面实例
  */
 async function handlePopup(page) {
     await page.evaluate(() => {
-        // 移除所有已知遮罩层
+        // 1. 移除所有已知遮罩层，防止指针事件被吞
         const blockers = [
-            '#video_analysis_ratelimit_overlay',
-            '.layui-layer-shade',
-            '.layerSaveSuccess',
+            '#video_analysis_ratelimit_overlay', // 视频解析频率限制遮罩
+            '.layui-layer-shade',                // 常见的 LayUI 遮罩层
+            '.layerSaveSuccess',                 // 保存成功的提示框
             '#popup_box',
             '#popup_box_bg'
         ];
         blockers.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
 
-        // 重置可能的反爬 JS 变量
+        // 2. 重置可能的反爬 JS 变量，破除前端限流
         window.is_ratelimit = false;
         if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
 
-        // 强行显示被隐藏的解析区域
+        // 3. 强行显示被隐藏的解析区域 (针对某些题目只通过 CSS 隐藏解析的情况)
         document.querySelectorAll('.hide, .hidden, [style*="display: none"]').forEach(el => {
             if (el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer')) {
                 el.classList.remove('hide', 'hidden');
@@ -113,6 +147,12 @@ async function handlePopup(page) {
 
 /**
  * 全量恢复：安全点击封装
+ * 带容错的点击机制，如果 Playwright 标准的行动力测试（Actionability checks）失败，
+ * 则降级为纯 JS 的原生点击，绕过 pointer-events 阻拦。
+ * @param {import('playwright').Page} page
+ * @param {string} selector CSS选择器
+ * @param {number} waitAfter 点击后强制等待的毫秒数
+ * @returns {boolean} 是否成功找到并点击了元素
  */
 async function safeClick(page, selector, waitAfter = 0) {
     const element = await page.$(selector);
@@ -122,7 +162,7 @@ async function safeClick(page, selector, waitAfter = 0) {
     try {
         await element.click({ force: true, timeout: 5000 });
     } catch (e) {
-        // 后备方案：JS 原生点击
+        // 后备方案：跳过 Playwright 鼠标模拟，直接执行 JS DOM click
         await element.evaluate(el => el.click()).catch(() => {});
     }
     if (waitAfter > 0) await page.waitForTimeout(waitAfter);
@@ -132,6 +172,8 @@ async function safeClick(page, selector, waitAfter = 0) {
 
 /**
  * 全量恢复：触发解析显示
+ * 在单页应用（SPA）中，某些答案和解析只有在用户点击特定按钮后才会经由 Ajax 加载或解除隐藏。
+ * 本函数采取“广撒网”策略，遍历点击所有疑似解析按钮的节点。
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
@@ -143,12 +185,12 @@ async function triggerOfficialAnalysis(page) {
             }
         };
 
-        // 点击所有可能的解析按钮
+        // 1. 通过已知 class 和属性定位点击所有可能的解析按钮
         clickIfVisible('.click_analysis');
         clickIfVisible('[data-type="analysis"]');
         clickIfVisible('.analysis-btn, .show-analysis, .jiexi, .answer-analysis');
 
-        // 根据文本点击
+        // 2. 后备方案：通过文本特征盲点
         const tabs = Array.from(document.querySelectorAll('a, button, span, div'))
             .filter(el => {
                 const t = (el.innerText || '').trim();
@@ -159,16 +201,21 @@ async function triggerOfficialAnalysis(page) {
 }
 
 /**
- * 全量恢复：等待题目刷新
+ * 全量恢复：等待题目刷新 (解决 SPA 串题问题的核心)
+ * 当点击“下一题”时，由于是单页应用，DOM 不会重新加载，只会替换内部文本。
+ * 为了防止爬虫过快读取到上一题的残留数据，必须采取“双重校验”策略。
+ * @param {import('playwright').Page} page
+ * @param {string} oldStep 上一题的进度标签 (例如 "1/100")
+ * @param {string} oldItemId 上一题的题目内部 ID
  */
-async function waitForQuestionChange(page, oldStep, oldItemId, oldAnalysis) {
-    // 1. 等待题号变化
+async function waitForQuestionChange(page, oldStep, oldItemId) {
+    // 1. 双重校验之一：等待进度标识（题号）发生本质变化
     await page.waitForFunction((old) => {
         const el = document.querySelector('#item_step, .item-step');
         return (el?.innerText || '').trim() !== old;
     }, oldStep, { timeout: 12000 }).catch(() => {});
 
-    // 2. 等待 DOM ID 变化
+    // 2. 双重校验之二：等待 DOM ID 发生变化 (防止题号变了但数据还没渲染完)
     if (oldItemId) {
         await page.waitForFunction((old) => {
             const el = document.querySelector('#item_id');
@@ -176,7 +223,8 @@ async function waitForQuestionChange(page, oldStep, oldItemId, oldAnalysis) {
             return t.length > 0 && t !== old;
         }, oldItemId, { timeout: 8000 }).catch(() => {});
     }
-    await randomSleep(1500, 2500); // 必须留够缓冲时间
+    // 3. 强制网络请求缓冲期：给 Ajax 渲染图片和解析留出绝对时间
+    await randomSleep(1500, 2500); 
 }
 
 /**
