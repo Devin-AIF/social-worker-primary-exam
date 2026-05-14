@@ -15,6 +15,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 
 // --- 配置与常量 ---
 /** 
@@ -258,7 +259,7 @@ async function readQuestionData(page) {
                 if (src) {
                     const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
                     images.push({ name, url: src });
-                    img.replaceWith(` ![图](./images/${name}) `);
+                    img.replaceWith(`![图](images/${name})`);
                 }
             });
             return clone.innerText.trim();
@@ -420,7 +421,7 @@ function isLikelyStaleAnalysis(currentData, lastSnapshot) {
 }
 
 /**
- * 图片异步下载 (加固版：支持相对路径和基本重试)
+ * 图片异步下载 (加固版：支持 http/https 协议、相对路径和基本重试)
  * @param {string} url 图片源地址
  * @param {string} dest 本地存储路径
  */
@@ -436,8 +437,11 @@ async function downloadImage(url, dest) {
             fullUrl = `https://www.xs507.com/${url}`;
         }
 
+        // 根据 URL 协议选择合适的模块
+        const protocol = fullUrl.startsWith('https') ? https : http;
+
         await new Promise((resolve, reject) => {
-            const request = https.get(fullUrl, (response) => {
+            const request = protocol.get(fullUrl, (response) => {
                 if (response.statusCode === 200) {
                     const file = fs.createWriteStream(dest);
                     response.pipe(file);
