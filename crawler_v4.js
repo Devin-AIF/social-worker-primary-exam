@@ -244,20 +244,21 @@ async function ensureReciteMode(page) {
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
-        // 1. 检查解析是否已经完全展开且包含内容
+        const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
+        
+        // 1. 检查解析是否已经完全展开且包含真实内容
         const getVisibleAnalysis = () => {
-            const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail'];
+            const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail'];
             for (const s of sel) {
                 const el = document.querySelector(s);
-                const isVisible = !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
-                if (isVisible && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
+                if (isVisible(el) && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
             }
             return null;
         };
         
         if (getVisibleAnalysis()) return; 
 
-        // 2. 触发解析按钮
+        // 2. 触发各种可能的解析/答案按钮
         const clickSelectors = [
             '.click_analysis', 
             '[data-type="analysis"]', 
@@ -265,33 +266,34 @@ async function triggerOfficialAnalysis(page) {
             '.show-analysis', 
             '.jiexi', 
             '.answer-analysis',
-            '.btn-analysis'
+            '.btn-analysis',
+            '.show-answer',
+            '#show_answer_btn',
+            '.view-solution'
         ];
         
         for (const s of clickSelectors) {
             const els = Array.from(document.querySelectorAll(s));
             for (const el of els) {
-                const isVisible = !!(el && (el.offsetParent || el.getClientRects().length));
-                if (isVisible) { el.click(); break; }
+                if (isVisible(el)) { el.click(); break; }
             }
         }
 
-        // 3. 后备方案：通过文本特征查找按钮
-        const tabs = Array.from(document.querySelectorAll('a, button, span, div'))
+        // 3. 针对问答题/主观题：点击“查看答案”或类似文本
+        const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
             .filter(el => {
                 const t = (el.innerText || '').trim();
-                const isVisible = !!(el && (el.offsetParent || el.getClientRects().length));
-                return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析') && isVisible;
+                return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案') && isVisible(el);
             });
-        tabs.forEach(el => el.click());
+        textButtons.forEach(el => el.click());
     });
 
-    // 给 Ajax 留出加载时间，如果还没出来就多等一会
+    // 等待加载
     await page.waitForTimeout(1500);
     
-    // 增加一个动态等待，确保内容加载
+    // 动态等待内容加载
     await page.waitForFunction(() => {
-        const el = document.querySelector('.analysis.pd10, #answer_analysis, .analysis, #analysis, .tiku-analysis');
+        const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail');
         return el && el.innerText.trim().length > 10 && !el.innerText.includes('点击查看解析');
     }, { timeout: 3000 }).catch(() => {});
 }
@@ -475,25 +477,22 @@ async function readQuestionData(page) {
     }, ENABLE_DISCUSSION_FALLBACK);
 }
 
-/**
- * 全量恢复：进入章节并初始化刷题状态
- * 负责点击进入指定章节，开启“背题模式”，并跳转到断点所在的题号。
- * @param {import('playwright').Page} page
- * @param {string} chapterUrl 章节的初始 URL
- * @param {number} questionIndex 断点索引（已抓取数量），用于跳过已抓取的题目
- */
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     log(`正在打开章节 URL: ${chapterUrl}`, 'DEBUG');
-    await page.goto(chapterUrl).catch(() => {});
+    // 如果是重新开始（questionIndex=0），尝试在 URL 后追加 again=1 以重置服务器端的练习状态
+    const finalUrl = (questionIndex === 0 && !chapterUrl.includes('again=1')) 
+        ? (chapterUrl.includes('?') ? `${chapterUrl}&again=1` : `${chapterUrl}?again=1`)
+        : chapterUrl;
+
+    await page.goto(finalUrl).catch(() => {});
     await randomSleep(4000, 6000);
     await handlePopup(page);
     
-    // 1. 点击进入做题界面 (增加了更多可能的按钮文本，适配详情页和直接跳转页)
+    // 1. 点击进入做题界面
     const startSelectors = [
         'a.enable.a2', 
         'a:has-text("开始做题")', 
         'a:has-text("练习模式")', 
-        'a:has-text("考试模式")', 
         'a:has-text("继续做题")', 
         'a:has-text("重新做题")',
         '#PaperStartTimes',
@@ -505,60 +504,59 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         if (await safeClick(page, selector, 5000)) {
             log(`激活了启动按钮: ${selector}`, 'DEBUG');
             clicked = true;
-            // 如果是“重新做题”，可能还有个确认弹窗，再清理一次
             await handlePopup(page);
             break;
         }
     }
 
-    if (!clicked) {
-        log('未发现显式的启动按钮，可能已直接进入答题页或按钮不匹配', 'DEBUG');
+    // 2. 尝试激活“背题模式”
+    const activated = await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
+            .find(el => {
+                const t = (el.innerText || '').trim();
+                return (t === '背题模式' || t === '显示答案') && !!(el.offsetParent || el.getClientRects().length);
+            });
+        if (btn) { btn.click(); return true; }
+        return false;
+    });
+
+    if (activated) {
+        log('背题模式已激活', 'INFO');
+        await randomSleep(3000, 5000);
+        await handlePopup(page);
     }
 
-    // 2. 确保进入背题模式 (核心修复：强制开启以保证解析可见)
-    await ensureReciteMode(page);
-
-    // 3. 断点续传跳转：双重保障机制
+    // 3. 断点续传：使用“答题卡”进行精准跳转（比输入框更可靠）
     if (questionIndex > 0) {
-        log(`正在尝试跳转到题号: ${questionIndex + 1}`, 'DEBUG');
-        
-        // 机制A: 尝试点击答题卡直达
-        await page.waitForSelector('#tiku_sheet_card li, .sheet-item', { timeout: 5000 }).catch(() => {});
-        const success = await page.evaluate((index) => {
-            const cards = document.querySelectorAll('#tiku_sheet_card li, .sheet-item, .answer-card li');
+        log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
+        // 先确保答题卡是展开的
+        await page.evaluate(() => {
+            const cardBtn = document.querySelector('.bd_dtk, .answer-card-btn, #tiku_sheet');
+            if (cardBtn && !!(cardBtn.offsetParent || cardBtn.getClientRects().length)) cardBtn.click();
+        });
+        await page.waitForTimeout(1000);
+
+        const jumped = await page.evaluate((index) => {
+            const cards = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
             if (cards.length > 0) {
                 const target = Math.min(index, cards.length - 1);
-                if (cards[target]) { cards[target].click(); return true; }
+                cards[target].click();
+                return true;
             }
             return false;
         }, questionIndex);
 
-        if (success) {
-            await randomSleep(4000, 6000);
-            await handlePopup(page);
+        if (!jumped) {
+            log('答题卡跳转失败，尝试输入框跳转...', 'WARN');
+            const jumpInput = await page.$('.bd_bt_input');
+            if (jumpInput) {
+                await jumpInput.focus();
+                await jumpInput.fill(String(questionIndex + 1));
+                await page.keyboard.press('Enter');
+            }
         }
-
-        // 机制B: 状态校验与步进式纠偏 (如果还没到指定位置，就一直点下一题)
-        let checkStep = await page.evaluate(() => {
-            const el = document.querySelector('#item_step, .item-step, .question-step');
-            return el ? el.innerText.trim() : '1/1';
-        });
-        let [c] = checkStep.split('/').map(Number);
-        
-        let moveCount = 0;
-        while (c < questionIndex + 1 && moveCount < 50) {
-            const next = await page.$('.subject-next, #next_item, .next-btn');
-            if (!next) break;
-            await next.click({ force: true });
-            await randomSleep(1500, 2500);
-            checkStep = await page.evaluate(() => {
-                const el = document.querySelector('#item_step, .item-step, .question-step');
-                return el ? el.innerText.trim() : '1/1';
-            });
-            c = Number(checkStep.split('/')[0]);
-            moveCount++;
-        }
-        log(`纠偏完成，当前位置: ${c}`, 'DEBUG');
+        await randomSleep(3000, 5000);
+        await handlePopup(page);
     }
 }
 
@@ -878,38 +876,55 @@ async function crawlSubject(page, subject) {
                 }
 
                 let lastWrittenCurr = currentProgress; 
-                let retryCount = 0;
-
+                
                 while (true) {
                     await handlePopup(page);
                     try {
-                        await page.waitForSelector('#item_title', { timeout: 15000 });
+                        await page.waitForSelector('#item_title, .item-title, .subject-title', { timeout: 15000 });
                     } catch (e) {
-                        log('等待题目超时，尝试纠偏...', 'WARN');
+                        log('等待题目加载超时，尝试点击“继续”或“下一题”纠偏...', 'WARN');
                         await handlePopup(page);
-                        const retryBtn = await page.$('a.enable.a2, a:has-text("继续"), a:has-text("做题"), #next_item');
-                        if (retryBtn) await retryBtn.click({ force: true }).catch(() => {});
-                        await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法进入题目页'); });
+                        const nextBtn = await page.$('.subject-next, #next_item, a:has-text("下一题")');
+                        if (nextBtn) await nextBtn.click({ force: true }).catch(() => {});
+                        await page.waitForTimeout(2000);
                     }
                     
-                    // 核心：触发解析并等待
                     await triggerOfficialAnalysis(page);
-                    await randomSleep(3500, 5500); 
+                    await randomSleep(2000, 3500);
                     
                     let data = await readQuestionData(page);
-                    let [curr, totalNum] = data.step.split('/').map(Number);
+                    const [curr, totalNum] = data.step.split('/').map(Number);
+                    
+                    // --- 核心修复：顺序校验与强制跳转 ---
+                    // 如果当前页面题号（curr）不等于我们期望的题号（lastWrittenCurr + 1），说明发生了跳题或串题
+                    if (curr !== lastWrittenCurr + 1 && curr <= totalNum && curr > 0) {
+                        log(`检测到题号不连续 (当前:${curr}, 期望:${lastWrittenCurr + 1})，正在通过答题卡强制纠偏...`, 'WARN');
+                        await page.evaluate((target) => {
+                            const cardBtn = document.querySelector('.bd_dtk, #tiku_sheet');
+                            if (cardBtn) cardBtn.click();
+                            setTimeout(() => {
+                                const cards = document.querySelectorAll('#tiku_sheet_card li, .answer-card li');
+                                if (cards[target - 1]) cards[target - 1].click();
+                            }, 500);
+                        }, lastWrittenCurr + 1);
+                        await randomSleep(3000, 5000);
+                        data = await readQuestionData(page);
+                        const [newCurr] = data.step.split('/').map(Number);
+                        if (newCurr !== lastWrittenCurr + 1) {
+                            log(`纠偏失败，当前仍为 ${newCurr}，尝试直接继续抓取以防死循环。`, 'DEBUG');
+                        }
+                    }
 
-                    // 防护：如果没抓到解析且不是主观题，尝试在练习模式下补救
-                    if (data.analysis === '无解析' && !['问答题', '案例分析题', '简答题'].includes(data.type)) {
-                        log('检测到解析缺失，尝试安全触发...', 'DEBUG');
+                    // 如果还没抓到答案，尝试点击选项触发
+                    if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
                         await page.evaluate(() => {
-                            const opt = document.querySelector('#item_options li, .options li');
+                            const opt = document.querySelector('#item_options li, .options li, .question-options li');
                             // 关键：只有在未选中的情况下才点，避免取消选中
                             if (opt && !opt.classList.contains('selected') && !opt.classList.contains('active')) {
                                 opt.click();
                             }
                         });
-                        await randomSleep(2000, 3000);
+                        await page.waitForTimeout(1000);
                         await triggerOfficialAnalysis(page);
                         await randomSleep(2000, 3000);
                         data = await readQuestionData(page);
