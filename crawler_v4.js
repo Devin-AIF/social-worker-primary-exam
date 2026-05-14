@@ -173,35 +173,49 @@ async function randomSleep(min, max) {
 async function handlePopup(page) {
     await page.evaluate(() => {
         // 1. 移除真正的透明遮罩（它们会挡住点击）
-        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg'];
-        shades.forEach(s => {
-            document.querySelectorAll(s).forEach(el => el.remove());
-        });
-
-        // 2. 移除干扰答题区域或按钮的固定浮窗，但绝不碰可能包含内容的 popup_box 等 DOM 容器的可见性
-        const floatingMasks = ['.fix-bottom', '.ad-box'];
-        floatingMasks.forEach(s => {
-            document.querySelectorAll(s).forEach(el => el.remove());
-        });
-
-        // 3. 重置可能的反爬 JS 变量
-        window.is_ratelimit = false;
-        if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
+        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#async function triggerOfficialAnalysis(page) {
+    // 1. 判断是否已经显示了解析内容
+    const hasAnalysis = await page.evaluate(() => {
+        const getVisibleText = (selector) => {
+            const el = document.querySelector(selector);
+            if (!el || el.offsetParent === null) return '';
+            return el.innerText.trim();
+        };
+        // 扩展选择器：适配更多题型
+        const selectors = [
+            '.analysis.pd10', '#answer_analysis .analysis', 
+            '.analysis', '#analysis', '.answer-detail', 
+            '.solution', '.analysis-box', '.click_analysis'
+        ];
+        for (const s of selectors) {
+            const text = getVisibleText(s);
+            if (text.length > 5 && !text.includes('点击查看解析')) return true;
+        }
+        return false;
     });
-}
 
-/**
- * 全量恢复：安全点击封装
- * 带容错的点击机制，如果 Playwright 标准的行动力测试（Actionability checks）失败，
- * 则降级为纯 JS 的原生点击，绕过 pointer-events 阻拦。
- * @param {import('playwright').Page} page
- * @param {string} selector CSS选择器
- * @param {number} waitAfter 点击后强制等待的毫秒数
- * @returns {boolean} 是否成功找到并点击了元素
- */
-async function safeClick(page, selector, waitAfter = 0) {
-    const element = await page.$(selector);
-    if (!element) return false;
+    if (hasAnalysis) return;
+
+    // 2. 尝试点击所有可能的解析按钮
+    await page.evaluate(() => {
+        // 广撒网点击
+        const selectors = [
+            '.click_analysis', '[data-type="analysis"]', 
+            '.analysis-btn', '.show-analysis', '#show_analysis',
+            '.btns-analysis', '.ans-btn'
+        ];
+        for (const s of selectors) {
+            const els = document.querySelectorAll(s);
+            els.forEach(el => { if (el.offsetParent !== null) el.click(); });
+        }
+        // 文本匹配点击
+        const btns = Array.from(document.querySelectorAll('a, button, span, div, li')).filter(el => {
+            const t = (el.innerText || '').trim();
+            return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '查看答案') && el.offsetParent !== null;
+        });
+        btns.forEach(b => b.click());
+    });
+}lse;
 
     await handlePopup(page);
     try {
@@ -311,7 +325,15 @@ async function readQuestionData(page) {
         };
 
         const images = [];
-        const step = document.querySelector('#item_step, .item-step')?.innerText.trim() || '0/0';
+        const getStep = () => {
+            const sel = ['#item_step', '.item-step', '.question-step', '.subject-step', '.step'];
+            for (const s of sel) {
+                const el = document.querySelector(s);
+                if (el && el.innerText.includes('/')) return el.innerText.trim();
+            }
+            return '1/1';
+        };
+        const step = getStep();
 
         // 核心：原地提取逻辑（不克隆，确保 innerText 格式完美）
         const processImages = (container, prefix) => {
@@ -480,17 +502,47 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         await handlePopup(page);
     }
 
-    // 3. 断点续传跳转：点击答题卡上的特定索引直接跳到未抓取的题目
+    // 3. 断点续传跳转：双重保障机制
     if (questionIndex > 0) {
-        log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
-        await page.waitForSelector('#tiku_sheet_card li', { timeout: 8000 }).catch(() => {});
-        await page.evaluate((index) => {
-            const cards = document.querySelectorAll('#tiku_sheet_card li');
-            const target = Math.min(index, cards.length - 1); // 防止索引越界
-            if (target >= 0 && cards[target]) cards[target].click();
+        log(`正在尝试跳转到题号: ${questionIndex + 1}`, 'DEBUG');
+        
+        // 机制A: 尝试点击答题卡直达
+        await page.waitForSelector('#tiku_sheet_card li, .sheet-item', { timeout: 5000 }).catch(() => {});
+        const success = await page.evaluate((index) => {
+            const cards = document.querySelectorAll('#tiku_sheet_card li, .sheet-item, .answer-card li');
+            if (cards.length > 0) {
+                const target = Math.min(index, cards.length - 1);
+                if (cards[target]) { cards[target].click(); return true; }
+            }
+            return false;
         }, questionIndex);
-        await randomSleep(4000, 6000);
-        await handlePopup(page);
+
+        if (success) {
+            await randomSleep(4000, 6000);
+            await handlePopup(page);
+        }
+
+        // 机制B: 状态校验与步进式纠偏 (如果还没到指定位置，就一直点下一题)
+        let checkStep = await page.evaluate(() => {
+            const el = document.querySelector('#item_step, .item-step, .question-step');
+            return el ? el.innerText.trim() : '1/1';
+        });
+        let [c] = checkStep.split('/').map(Number);
+        
+        let moveCount = 0;
+        while (c < questionIndex + 1 && moveCount < 50) {
+            const next = await page.$('.subject-next, #next_item, .next-btn');
+            if (!next) break;
+            await next.click({ force: true });
+            await randomSleep(1500, 2500);
+            checkStep = await page.evaluate(() => {
+                const el = document.querySelector('#item_step, .item-step, .question-step');
+                return el ? el.innerText.trim() : '1/1';
+            });
+            c = Number(checkStep.split('/')[0]);
+            moveCount++;
+        }
+        log(`纠偏完成，当前位置: ${c}`, 'DEBUG');
     }
 }
 
@@ -874,6 +926,13 @@ async function crawlSubject(page, subject) {
                     }
 
                     retryCount = 0; // 成功前进，重置重试计数
+
+                    // 3. 核心保护：严禁写入非正数或小于断点的题号，防止“从0开始”或覆盖
+                    if (curr <= 0) {
+                        log(`检测到非法题号 ${curr}，等待重试...`, 'WARN');
+                        await randomSleep(3000, 5000);
+                        continue;
+                    }
 
                     // 写入 Markdown (根据题型优化排版)
                     let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
