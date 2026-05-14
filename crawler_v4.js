@@ -404,14 +404,16 @@ function isLikelyStaleAnalysis(currentData, lastSnapshot) {
     const currentAnalysis = (currentData.analysis || '').trim();
     const lastAnalysis = (lastSnapshot.analysis || '').trim();
 
-    if (!currentAnalysis || currentAnalysis === '无解析') return false;
+    // 如果解析是“无解析”，直接返回 false，无需处理
+    if (!currentAnalysis || currentAnalysis === '无解析' || currentAnalysis === '未知') return false;
     if (currentAnalysis.startsWith('[讨论提取]')) return false;
 
-    // 核心修复：比较时剥离前缀
-    const cleanLastAnalysis = lastAnalysis.replace(/^\[警告：可能重复上一题解析\]\s*/, '').trim();
-
+    // 核心逻辑：如果题目（题号或标题）变了，但解析文本却和上一题保存的一模一样
+    // 那么这极大概率是网页 DOM 还没刷新导致的“残留解析”
     const questionChanged = currentStep !== lastStep || currentTitle !== lastTitle;
-    return questionChanged && currentAnalysis === cleanLastAnalysis;
+    const analysisIdentical = currentAnalysis === lastAnalysis;
+
+    return questionChanged && analysisIdentical;
 }
 
 async function downloadImage(url, dest) {
@@ -554,22 +556,36 @@ async function run() {
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
+            // --- 核心逻辑：计算起步题号（断点续抓校验） ---
+            // 逻辑：取 1. 状态文件记录 2. 本地MD文件实际题数 的最大值
+            let savedInfo = completionStatus[statusKey] || {};
+            // 兼容旧版格式（如果保存的是数字，则转为对象）
+            if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
+            
             const skipCount = Math.max(
-                Number(completionStatus[statusKey]) || 0,
+                Number(savedInfo.completed) || 0,
                 getCompletedCount(outputFile)
             );
             
-            // 改进：彻底跳过逻辑（严格匹配 ID）
-            if ((chapter.totalCount > 0 && skipCount >= chapter.totalCount) || (chapter.totalCount === 0 && skipCount > 0 && getCompletedCount(outputFile) > 0)) {
-                log(`[跳过] 已完成章节: ${chapter.title} (ID: ${chapter.id}, 进度: ${skipCount}/${chapter.totalCount || '?'})`, 'INFO');
-                if (!completionStatus[statusKey] || completionStatus[statusKey] < skipCount) {
-                    completionStatus[statusKey] = skipCount;
-                    saveStatus();
-                }
+            const totalCount = chapter.totalCount || savedInfo.total || 0;
+
+            // --- 核心逻辑：精准跳过判定 ---
+            // 如果总题数已知，且已抓取题数 >= 总题数，则直接跳过
+            if (totalCount > 0 && skipCount >= totalCount) {
+                log(`[跳过] 已完成章节: ${chapter.title} (ID: ${chapter.id}, 进度: ${skipCount}/${totalCount})`, 'INFO');
+                // 确保状态文件中的总数和进度是最新的
+                completionStatus[statusKey] = {
+                    id: chapter.id,
+                    title: chapter.title,
+                    completed: skipCount,
+                    total: totalCount,
+                    updatedAt: new Date().toLocaleString()
+                };
+                saveStatus();
                 continue;
             }
 
-            log(`>> 正在检查: ${chapter.title} (ID: ${chapter.id}, 已抓取: ${skipCount})`, 'INFO');
+            log(`>> 正在检查: ${chapter.title} (ID: ${chapter.id}, 已抓取: ${skipCount}, 预期总数: ${totalCount || '未知'})`, 'INFO');
             try {
                 await openChapterAtQuestion(page, chapter.url, skipCount);
             } catch (e) { log(`尝试开启背题模式失败: ${e.message}`, 'DEBUG'); }
@@ -645,28 +661,44 @@ async function run() {
                         break;
                     }
 
-                    // 检测串题（解析与上一题相同）
+                    // --- 核心逻辑：检测解析是否是上一题残留（串题检测） ---
                     const staleAnalysis = isLikelyStaleAnalysis(data, lastSavedSnapshot);
                     if (staleAnalysis) {
-                        log(`检测到重复解析，已置为无解析: ${chapter.title} 第 ${curr} 题`, 'WARN');
+                        log(`检测到重复解析（源自上一题残留），已置为无解析: ${chapter.title} 第 ${curr} 题`, 'WARN');
                         data.analysis = `无解析`;
                     }
                     if (!hasOfficialAnalysis(data)) {
                         log(`第 ${curr} 题无官方解析，以"无解析"保存`, 'WARN');
                     }
 
-                    const mdContent = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
+                    // --- 核心逻辑：构建 Markdown 内容 ---
+                    // 包含：题号、题型、题目、图片、选项、正确答案、解析
+                    const mdContent = `## 第 ${curr} 题 [${data.type}]\n\n` +
+                        `**题目：** ${data.title}\n\n` +
+                        `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n` +
+                        `> **正确答案：** ${data.answer}\n\n` +
+                        `**解析：**\n${data.analysis}\n\n` +
+                        `---\n\n`;
+
+                    // 强行写入文件（追加模式）
                     fs.appendFileSync(outputFile, mdContent);
-                    lastSavedSnapshot = {
-                        step: data.step,
-                        title: data.title,
-                        analysis: data.analysis
+
+                    // --- 核心逻辑：记录详细进度到 JSON 日志 ---
+                    // 包含：题库ID、标题、已下载题数、总题数
+                    completionStatus[statusKey] = {
+                        id: chapter.id,
+                        title: chapter.title,
+                        completed: curr,
+                        total: total,
+                        updatedAt: new Date().toLocaleString()
                     };
-                    completionStatus[statusKey] = curr;
                     saveStatus();
-                    process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
+
+                    // 控制台实时回显进度
+                    process.stdout.write(`\r进度: ${data.step} | ID: ${chapter.id} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                     chapterCapturedCount += 1;
 
+                    // 异步下载题目中的图片
                     const imgTasks = data.images.map(img => downloadImage(img.url, path.join(imgDir, img.name)));
                     await Promise.all(imgTasks);
 
@@ -699,7 +731,13 @@ async function run() {
                         } else break;
                     } else {
                         log(`\n>> [完成] ${chapter.title} 抓取完毕。`, 'INFO');
-                        completionStatus[statusKey] = total;
+                        completionStatus[statusKey] = {
+                            id: chapter.id,
+                            title: chapter.title,
+                            completed: total,
+                            total: total,
+                            updatedAt: new Date().toLocaleString()
+                        };
                         saveStatus();
                         break;
                     }
