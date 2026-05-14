@@ -126,22 +126,10 @@ async function handlePopup(page) {
             document.querySelectorAll(s).forEach(el => el.remove());
         });
 
-        // 2. 对于可能是内容载体的容器（如 popup_box），不要删除或隐藏，只将其置于底层，防止它挡住下一题按钮
-        const containers = ['#popup_box'];
-        containers.forEach(s => {
-            document.querySelectorAll(s).forEach(el => {
-                // 如果它没有“解析”内容，才考虑置底
-                if (!el.innerText.includes('解析') && !el.id.includes('analysis')) {
-                    el.style.zIndex = '-1';
-                    el.style.pointerEvents = 'none';
-                } else {
-                    // 如果有解析，确保它是可见的
-                    el.style.zIndex = '9999';
-                    el.style.display = 'block';
-                    el.style.visibility = 'visible';
-                    el.style.pointerEvents = 'auto';
-                }
-            });
+        // 2. 移除干扰答题区域或按钮的固定浮窗，但绝不碰可能包含内容的 popup_box 等 DOM 容器的可见性
+        const floatingMasks = ['.fix-bottom', '.ad-box'];
+        floatingMasks.forEach(s => {
+            document.querySelectorAll(s).forEach(el => el.remove());
         });
 
         // 3. 重置可能的反爬 JS 变量
@@ -181,36 +169,45 @@ async function safeClick(page, selector, waitAfter = 0) {
  * 本函数采取“广撒网”策略，遍历点击所有疑似解析按钮的节点。
  */
 async function triggerOfficialAnalysis(page) {
-    await page.evaluate(() => {
-        // 先检查解析是否已经显示，如果已经显示，就不重复点击了，防止“反向操作”关闭了解析
-        const analysisArea = document.querySelector('.analysis, #answer_analysis, #analysis');
-        const isAlreadyVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
-        
-        if (isAlreadyVisible(analysisArea) && analysisArea.innerText.length > 10 && !analysisArea.innerText.includes('点击查看解析')) {
-            return; // 已经有真实解析内容了，跳过点击
-        }
-
-        const clickIfVisible = (selector) => {
-            const elements = Array.from(document.querySelectorAll(selector));
-            for (const el of elements) {
-                const visible = !!(el.offsetParent || el.getClientRects().length);
-                if (visible) el.click();
-            }
+    // 1. 首先判断是否已经存在有效的解析文本。如果存在，就不再乱点按钮。
+    const hasAnalysis = await page.evaluate(() => {
+        const getVisibleText = (selector) => {
+            const el = document.querySelector(selector);
+            if (!el || el.offsetParent === null) return '';
+            return el.innerText.trim();
         };
-
-        // 1. 通过已知 class 和属性定位点击所有可能的解析按钮
-        clickIfVisible('.click_analysis');
-        clickIfVisible('[data-type="analysis"]');
-        clickIfVisible('.analysis-btn, .show-analysis, .jiexi, .answer-analysis');
-
-        // 2. 后备方案：通过文本特征盲点
-        const tabs = Array.from(document.querySelectorAll('a, button, span, div'))
-            .filter(el => {
-                const t = (el.innerText || '').trim();
-                return (t === '查看解析' || t === '解析' || t === '参考解析') && !!(el.offsetParent || el.getClientRects().length);
-            });
-        tabs.forEach(el => el.click());
+        const text = getVisibleText('.analysis.pd10, #answer_analysis .analysis, .analysis, #analysis');
+        return text.length > 5 && !text.includes('点击查看解析');
     });
+
+    if (hasAnalysis) return;
+
+    // 2. 尝试点击查看解析按钮
+    await page.evaluate(() => {
+        const selectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis'];
+        for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (el && el.offsetParent !== null) { el.click(); return; }
+        }
+        // 后备文本匹配
+        const tabs = Array.from(document.querySelectorAll('a, button, span, div')).find(el => {
+            const t = (el.innerText || '').trim();
+            return (t === '查看解析' || t === '解析' || t === '参考解析') && el.offsetParent !== null;
+        });
+        if (tabs) tabs.click();
+    });
+
+    // 3. 动态等待解析内容出现 (最多等待 3 秒)
+    try {
+        await page.waitForFunction(() => {
+            const el = document.querySelector('.analysis.pd10, #answer_analysis .analysis, .analysis, #analysis');
+            if (!el || el.offsetParent === null) return false;
+            const t = el.innerText.trim();
+            return t.length > 5 && !t.includes('点击查看解析');
+        }, { timeout: 3000 });
+    } catch (e) {
+        // 等待超时，可能这题真没有解析，或者按钮没生效，属于正常情况，不抛异常
+    }
 }
 
 /**
@@ -222,22 +219,24 @@ async function triggerOfficialAnalysis(page) {
  * @param {string} oldItemId 上一题的题目内部 ID
  */
 async function waitForQuestionChange(page, oldStep, oldItemId) {
-    // 1. 双重校验之一：等待进度标识（题号）发生本质变化
-    await page.waitForFunction((old) => {
-        const el = document.querySelector('#item_step, .item-step');
-        return (el?.innerText || '').trim() !== old;
-    }, oldStep, { timeout: 12000 }).catch(() => {});
+    // 1. 核心校验：等待题目进度（题号）或内部题目 ID 发生变化，标志着 SPA 开始重新渲染
+    await page.waitForFunction(({ oldStep, oldItemId }) => {
+        const stepEl = document.querySelector('#item_step, .item-step');
+        const idEl = document.querySelector('#item_id');
+        const currentStep = (stepEl?.innerText || '').trim();
+        const currentId = (idEl?.innerText || '').trim();
+        
+        return (currentStep && currentStep !== oldStep) || (currentId && currentId !== oldItemId);
+    }, { oldStep, oldItemId }, { timeout: 12000 }).catch(() => {});
 
-    // 2. 双重校验之二：等待 DOM ID 发生变化 (防止题号变了但数据还没渲染完)
-    if (oldItemId) {
-        await page.waitForFunction((old) => {
-            const el = document.querySelector('#item_id');
-            const t = (el?.innerText || '').trim();
-            return t.length > 0 && t !== old;
-        }, oldItemId, { timeout: 8000 }).catch(() => {});
-    }
-    // 3. 强制网络请求缓冲期：给 Ajax 渲染图片和解析留出绝对时间
-    await randomSleep(1500, 2500); 
+    // 2. DOM 稳定期：等待题目主干渲染完毕 (标题区域必须有文字)
+    await page.waitForFunction(() => {
+        const el = document.querySelector('#item_title, .item-title, .subject-title');
+        return el && el.innerText.trim().length > 0;
+    }, { timeout: 5000 }).catch(() => {});
+
+    // 3. 基础缓冲，让剩余选项、图片等资源有时间呈现
+    await randomSleep(1000, 1500); 
 }
 
 /**
@@ -301,7 +300,7 @@ async function readQuestionData(page) {
         const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li')).filter(isVisible);
         const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
 
-        // 3. 提取官方解析
+        // 3. 提取官方解析 (纯净版，不使用危险的截断替换)
         let analysisText = '无解析';
         const analysisSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
         for (const s of analysisSelectors) {
@@ -309,13 +308,17 @@ async function readQuestionData(page) {
             for (let i = elements.length - 1; i >= 0; i--) {
                 const el = elements[i];
                 if (isVisible(el)) {
-                    const t = el.innerText.trim();
-                    if (t.includes('点击查看解析')) continue;
-                    let rawAnalysis = processImages(el, 'ans');
-                    let replaced = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
-                    analysisText = replaced || rawAnalysis;
-                    if (analysisText.length > 5 && analysisText !== '无解析') {
-                        break;
+                    const rawAnalysis = processImages(el, 'ans');
+                    if (rawAnalysis && !rawAnalysis.includes('点击查看解析')) {
+                        // 移除开头可能多余的“参考解析”等前导文本，但不使用危险的全局截断
+                        let cleanText = rawAnalysis.replace(/^[\s\n]*(参考)?解析[：:\n\s]*/i, '').trim();
+                        if (cleanText.length > 0) {
+                            analysisText = cleanText;
+                            break;
+                        } else if (rawAnalysis.length > 5) { // 作为回退方案，如果正则意外清空，至少保留原始内容
+                            analysisText = rawAnalysis;
+                            break;
+                        }
                     }
                 }
             }
@@ -437,19 +440,6 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         await randomSleep(4000, 6000);
         await handlePopup(page);
     }
-}
-
-/**
- * 串题检测 (防御性编程)
- * 判断抓取到的解析是不是上一题残留的。
- * @param {Object} currentData 当前提取到的数据
- * @param {Object} lastSnapshot 上一题的数据快照
- * @returns {boolean} 是否疑似串题
- */
-function isLikelyStaleAnalysis(currentData, lastSnapshot) {
-    if (!currentData || !lastSnapshot) return false;
-    if (currentData.analysis === '无解析' || currentData.analysis === '未知') return false;
-    return currentData.step !== lastSnapshot.step && currentData.analysis === lastSnapshot.analysis;
 }
 
 /**
@@ -611,7 +601,6 @@ async function run() {
                 if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
                 let lastWrittenCurr = skipCount; // 核心：追踪当前循环内真正写入的进度
-                let lastSnapshot = { step: '__INIT__' };
                 let retryCount = 0;
 
                 while (true) {
@@ -684,7 +673,6 @@ async function run() {
                     }
 
                     retryCount = 0; // 成功前进，重置重试计数
-                    if (isLikelyStaleAnalysis(data, lastSnapshot)) data.analysis = '无解析';
 
                     // 写入 Markdown
                     const md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
@@ -697,7 +685,6 @@ async function run() {
                         completed: curr, total: totalNum, updatedAt: new Date().toLocaleString()
                     };
                     saveStatus();
-                    lastSnapshot = data;
 
                     process.stdout.write(`\r进度: ${data.step} | ID: ${chapter.id} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                     
