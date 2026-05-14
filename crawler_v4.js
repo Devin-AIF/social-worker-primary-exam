@@ -455,8 +455,6 @@ async function run() {
     } catch (e) { log(`登录过程可能存在问题: ${e.message}`, 'WARN'); }
 
     const CATEGORIES = [
-        { name: '章节练习', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/0.html' },
-        { name: '历年真题', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/1.html' },
         { name: '模拟试卷', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/2.html' }
     ];
 
@@ -515,6 +513,9 @@ async function run() {
                 })
                 .filter((chapter, index, list) => list.findIndex(item => item.url === chapter.url) === index);
         });
+
+        log(`识别到 ${chapters.length} 个章节/试卷`, 'INFO');
+        chapters.forEach(c => log(` - ${c.title} (ID: ${c.id})`, 'DEBUG'));
 
         // 记录标题出现次数，用于辅助迁移旧目录
         const titleFirstSeen = {};
