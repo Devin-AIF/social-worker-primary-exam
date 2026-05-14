@@ -344,13 +344,37 @@ async function readQuestionData(page) {
  * @param {number} questionIndex 断点索引（已抓取数量），用于跳过已抓取的题目
  */
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
+    log(`正在打开章节 URL: ${chapterUrl}`, 'DEBUG');
     await page.goto(chapterUrl).catch(() => {});
     await randomSleep(4000, 6000);
     await handlePopup(page);
     
-    // 1. 点击进入做题界面
-    await safeClick(page, 'a.enable.a2, a:has-text("开始做题"), #PaperStartTimes', 6000);
-    await handlePopup(page);
+    // 1. 点击进入做题界面 (增加了更多可能的按钮文本，适配详情页和直接跳转页)
+    const startSelectors = [
+        'a.enable.a2', 
+        'a:has-text("开始做题")', 
+        'a:has-text("练习模式")', 
+        'a:has-text("考试模式")', 
+        'a:has-text("继续做题")', 
+        'a:has-text("重新做题")',
+        '#PaperStartTimes',
+        '.btns a.enable'
+    ];
+    
+    let clicked = false;
+    for (const selector of startSelectors) {
+        if (await safeClick(page, selector, 5000)) {
+            log(`激活了启动按钮: ${selector}`, 'DEBUG');
+            clicked = true;
+            // 如果是“重新做题”，可能还有个确认弹窗，再清理一次
+            await handlePopup(page);
+            break;
+        }
+    }
+
+    if (!clicked) {
+        log('未发现显式的启动按钮，可能已直接进入答题页或按钮不匹配', 'DEBUG');
+    }
 
     // 2. 尝试激活“背题模式” (该模式下通常会直接显示正确答案，极大降低抓取难度)
     const activated = await page.evaluate(() => {
@@ -361,6 +385,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     });
 
     if (activated) {
+        log('背题模式已激活', 'INFO');
         await randomSleep(3000, 5000);
         await handlePopup(page);
     }
@@ -419,7 +444,7 @@ async function downloadImage(url, dest) {
  * =================================================================================
  */
 async function run() {
-    log('正在开启 V17.4 最终全量加固版...', 'INFO');
+    log('正在开启 V17.5 导航加固版...', 'INFO');
     const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -463,7 +488,17 @@ async function run() {
                 .map(a => {
                     const p = a.closest('li, tr, .item, .big');
                     let title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
-                    const url = a.href;
+                    
+                    // 核心优化：优先提取直达做题页面的链接（练习模式 > 考试模式 > 详情页）
+                    let url = a.href;
+                    if (p) {
+                        const practiceBtn = p.querySelector('a[href*="/exam/"][href*="records_type/1"]');
+                        const examBtn = p.querySelector('a[href*="/exam/"]');
+                        const detailBtn = p.querySelector('a[href*="/detail/"]');
+                        if (practiceBtn) url = practiceBtn.href;
+                        else if (examBtn) url = examBtn.href;
+                        else if (detailBtn) url = detailBtn.href;
+                    }
                     
                     let id = '';
                     // 使用正则提取唯一 ID 供断点续传使用，按优先级探测
@@ -512,11 +547,15 @@ async function run() {
                 while (true) {
                     await handlePopup(page);
                     try {
-                        await page.waitForSelector('#item_title', { timeout: 15000 });
+                        await page.waitForSelector('#item_title', { timeout: 20000 });
                     } catch (e) {
-                        log('等待题目超时，清理遮罩重试...', 'WARN');
+                        log('等待题目超时，清理遮罩并尝试强制刷新页面...', 'WARN');
                         await handlePopup(page);
-                        await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法进入题目页'); });
+                        // 如果还是不行，可能是跳转没成功，尝试再点击一次“开始”
+                        const retryBtn = await page.$('a.enable.a2, a:has-text("继续"), a:has-text("做题")');
+                        if (retryBtn) await retryBtn.click().catch(() => {});
+                        
+                        await page.waitForSelector('#item_title', { timeout: 15000 }).catch(err => { throw new Error('无法进入题目页'); });
                     }
                     
                     await triggerOfficialAnalysis(page);
@@ -525,8 +564,11 @@ async function run() {
                     let data = await readQuestionData(page);
                     
                     // 防护：如果没抓到答案，这可能是部分多选题的机制限制，尝试点击任意一个选项触发 Ajax 返回答案
-                    if (data.answer === '未知' || data.analysis === '无解析') {
-                        await page.evaluate(() => document.querySelector('#item_options li, .options li')?.click());
+                    if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
+                        await page.evaluate(() => {
+                            const opt = document.querySelector('#item_options li, .options li');
+                            if (opt) opt.click();
+                        });
                         await randomSleep(2000, 3000);
                         await triggerOfficialAnalysis(page);
                         data = await readQuestionData(page);
