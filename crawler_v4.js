@@ -565,33 +565,67 @@ async function crawlSubject(page, subject) {
     // 先切换到该题库：访问题库列表页并点击对应 radio
     const TIKU_LIST_URL = 'https://www.xs507.com/Tiku/Tikulist/index.html';
     log(`\n正在切换题库到: ${subject.name} (product_id=${subject.productId})`, 'INFO');
-    await page.goto(TIKU_LIST_URL).catch(() => {});
-    await randomSleep(3000, 5000);
+    
+    // 导航到题库列表页，等待完全加载
+    await page.goto(TIKU_LIST_URL, { waitUntil: 'networkidle' }).catch(() => {});
+    await randomSleep(2000, 3000);
     await handlePopup(page);
 
-    // 等待 radio 列表加载完成
-    await page.waitForSelector('.list-change input.change-radio', { timeout: 10000 }).catch(() => {});
+    // 调试：打印实际到达的 URL
+    log(`题库列表页实际 URL: ${page.url()}`, 'DEBUG');
+
+    // 等待 radio 列表加载完成（最多等 15 秒）
+    let radioLoaded = false;
+    try {
+        await page.waitForSelector('.list-change input.change-radio', { timeout: 15000 });
+        radioLoaded = true;
+    } catch (e) {
+        // 可能页面结构不同，尝试更宽泛的选择器
+        try {
+            await page.waitForSelector('input[name="change_id"]', { timeout: 5000 });
+            radioLoaded = true;
+        } catch (e2) {
+            log('radio 列表未在页面上出现，尝试截取页面内容调试...', 'WARN');
+            const bodySnippet = await page.evaluate(() => {
+                return document.body?.innerHTML?.substring(0, 500) || '(empty body)';
+            });
+            log(`页面内容片段: ${bodySnippet}`, 'DEBUG');
+        }
+    }
 
     // 用 Playwright 原生 click 点击对应的 label（确保触发 jQuery change 事件）
-    const radioSelector = `input.change-radio[value="${subject.productId}"]`;
+    const radioSelector = `input[name="change_id"][value="${subject.productId}"]`;
     const radioExists = await page.$(radioSelector);
     
     if (!radioExists) {
         log(`未找到 product_id=${subject.productId} 的切换按钮，跳过`, 'ERROR');
         // 打印页面上实际存在的 radio 值，便于调试
         const availableValues = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('input.change-radio')).map(r => r.value);
+            return Array.from(document.querySelectorAll('input[name="change_id"]')).map(r => `${r.value}(${r.checked ? '选中' : '未选'})`);
         });
         log(`页面上可用的 product_id 列表: [${availableValues.join(', ')}]`, 'DEBUG');
         return;
     }
 
-    // 点击 label 来选中 radio（比直接点 input 更可靠，能触发完整事件链）
+    // 点击 label 来选中 radio（触发完整事件链）
     try {
-        await page.click(`label:has(${radioSelector})`, { force: true, timeout: 5000 });
+        // 方式1: 点击包裹 radio 的 label
+        await page.click(`label:has(input[name="change_id"][value="${subject.productId}"])`, { force: true, timeout: 5000 });
     } catch (e) {
-        // 后备：直接点击 input
-        await page.click(radioSelector, { force: true }).catch(() => {});
+        try {
+            // 方式2: 直接点击 input
+            await page.click(radioSelector, { force: true, timeout: 3000 });
+        } catch (e2) {
+            // 方式3: JS 强制选中并触发 change 事件
+            await page.evaluate((pid) => {
+                const radio = document.querySelector(`input[name="change_id"][value="${pid}"]`);
+                if (radio) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('change', { bubbles: true }));
+                    radio.dispatchEvent(new Event('click', { bubbles: true }));
+                }
+            }, subject.productId);
+        }
     }
     log(`已选中题库: ${subject.name}`, 'INFO');
     
