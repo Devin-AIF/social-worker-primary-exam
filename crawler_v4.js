@@ -567,22 +567,49 @@ async function crawlSubject(page, subject) {
     log(`\n正在切换题库到: ${subject.name} (product_id=${subject.productId})`, 'INFO');
     await page.goto(TIKU_LIST_URL).catch(() => {});
     await randomSleep(3000, 5000);
+    await handlePopup(page);
 
-    // 点击对应 radio 按钮切换题库
-    const switched = await page.evaluate((pid) => {
-        const radio = document.querySelector(`input[name="change_id"][value="${pid}"]`);
-        if (radio) { radio.click(); return true; }
-        return false;
-    }, subject.productId);
+    // 等待 radio 列表加载完成
+    await page.waitForSelector('.list-change input.change-radio', { timeout: 10000 }).catch(() => {});
 
-    if (switched) {
-        log(`已点击切换到: ${subject.name}`, 'INFO');
-        await randomSleep(4000, 6000);
-        await handlePopup(page);
-    } else {
+    // 用 Playwright 原生 click 点击对应的 label（确保触发 jQuery change 事件）
+    const radioSelector = `input.change-radio[value="${subject.productId}"]`;
+    const radioExists = await page.$(radioSelector);
+    
+    if (!radioExists) {
         log(`未找到 product_id=${subject.productId} 的切换按钮，跳过`, 'ERROR');
+        // 打印页面上实际存在的 radio 值，便于调试
+        const availableValues = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('input.change-radio')).map(r => r.value);
+        });
+        log(`页面上可用的 product_id 列表: [${availableValues.join(', ')}]`, 'DEBUG');
         return;
     }
+
+    // 点击 label 来选中 radio（比直接点 input 更可靠，能触发完整事件链）
+    try {
+        await page.click(`label:has(${radioSelector})`, { force: true, timeout: 5000 });
+    } catch (e) {
+        // 后备：直接点击 input
+        await page.click(radioSelector, { force: true }).catch(() => {});
+    }
+    log(`已选中题库: ${subject.name}`, 'INFO');
+    
+    // 等待页面可能发生的导航/刷新/Ajax 切换
+    await randomSleep(3000, 5000);
+    await handlePopup(page);
+
+    // 部分网站切换后会自动跳转，部分需要手动触发。检查是否有"确认"按钮
+    const confirmBtn = await page.$('.list-change .btn-confirm, .list-change .submit, button:has-text("确认"), a:has-text("确认切换")');
+    if (confirmBtn) {
+        await confirmBtn.click({ force: true }).catch(() => {});
+        log('点击了确认切换按钮', 'DEBUG');
+        await randomSleep(4000, 6000);
+    }
+    
+    // 切换完成后，页面可能刷新了，等待稳定
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await handlePopup(page);
 
     // 获取切换后页面的 subject_id（从页面链接中提取）
     let subjectId = '';
