@@ -552,73 +552,83 @@ async function downloadImage(url, dest) {
  * 主循环：任务分配与断点续传核心引擎
  * =================================================================================
  */
-async function run() {
-    log('正在开启 V18.1 终极深度加固版...', 'INFO');
-    const browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext();
-    const page = await context.newPage();
-
-    // 自动登录
-    try {
-        log('尝试自动登录...', 'INFO');
-        await page.goto(LOGIN_URL);
-        await page.waitForTimeout(2000);
-        await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
-        await page.fill('input[placeholder*="手机号"]', AUTH.user);
-        await page.fill('input[placeholder*="密码"]', AUTH.pass);
-        await page.click('.login-form-btn');
-        await page.waitForTimeout(6000);
-    } catch (e) { log('登录流程可能存在问题', 'WARN'); }
-
-    log('\n===========================================================', 'INFO');
-    log('【操作提示】登录成功！', 'INFO');
-    log('请在浏览器中，手动点击进入你想抓取的题库主页或任一列表页（包含历年真题等）。', 'INFO');
-    log('例如：点击进入《中级社会工作法规与政策》题库', 'INFO');
-    log('===========================================================\n', 'INFO');
-
-    await askUser('进入目标页面后，请在这里按【回车键】继续抓取...');
-
-    // 获取当前页面的信息
-    const currentUrl = page.url();
-    const match = currentUrl.match(/product_id[\/=](\d+)/) && currentUrl.match(/subject_id[\/=](\d+)/);
-    
-    let productId = '', subjectId = '';
-    if (match) {
-        productId = currentUrl.match(/product_id[\/=](\d+)/)[1];
-        subjectId = currentUrl.match(/subject_id[\/=](\d+)/)[1];
-    } else {
-        log('警告：从当前 URL 中无法识别 product_id 或 subject_id。这可能导致无法准确构建子分类链接。', 'WARN');
-        log('建议您进入题库的具体分类（如模拟试卷列表页）再试。当前将尝试直接抓取本页面...', 'WARN');
-    }
-
-    let subjectName = await page.evaluate(() => {
-        // 尝试从面包屑、产品标题或网页标题提取科目名
-        const breadcrumb = document.querySelector('.bread-crumb span:last-child');
-        if (breadcrumb) return breadcrumb.innerText.trim();
-        const prodTitle = document.querySelector('.product-title');
-        if (prodTitle) return prodTitle.innerText.trim();
-        const titleText = document.title;
-        return titleText.split('-')[0].trim();
-    });
-    
-    subjectName = sanitizeFileName(subjectName || '未命名科目题库');
-    log(`>>> 当前锁定科目: ${subjectName}`, 'INFO');
-    
+/**
+ * 抓取单个科目下所有分类（历年真题、模拟试卷、章节练习）的题目
+ * @param {import('playwright').Page} page
+ * @param {Object} subject 科目信息 { name, productId }
+ */
+async function crawlSubject(page, subject) {
+    const subjectName = sanitizeFileName(subject.name);
     const subjectDir = path.join(OUTPUT_DIR, subjectName);
     if (!fs.existsSync(subjectDir)) fs.mkdirSync(subjectDir, { recursive: true });
 
-    // 动态构造任务分类
-    const CATEGORIES = [];
-    if (productId && subjectId) {
-        CATEGORIES.push({ name: '历年真题', url: `https://www.xs507.com/Tiku/Product/index/product_id/${productId}/subject_id/${subjectId}/type/1.html` });
-        CATEGORIES.push({ name: '模拟试卷', url: `https://www.xs507.com/Tiku/Product/index/product_id/${productId}/subject_id/${subjectId}/type/2.html` });
-        CATEGORIES.push({ name: '章节练习', url: `https://www.xs507.com/Tiku/Product/index/product_id/${productId}/subject_id/${subjectId}/type/3.html` });
+    // 先切换到该题库：访问题库列表页并点击对应 radio
+    const TIKU_LIST_URL = 'https://www.xs507.com/Tiku/Tikulist/index.html';
+    log(`\n正在切换题库到: ${subject.name} (product_id=${subject.productId})`, 'INFO');
+    await page.goto(TIKU_LIST_URL).catch(() => {});
+    await randomSleep(3000, 5000);
+
+    // 点击对应 radio 按钮切换题库
+    const switched = await page.evaluate((pid) => {
+        const radio = document.querySelector(`input[name="change_id"][value="${pid}"]`);
+        if (radio) { radio.click(); return true; }
+        return false;
+    }, subject.productId);
+
+    if (switched) {
+        log(`已点击切换到: ${subject.name}`, 'INFO');
+        await randomSleep(4000, 6000);
+        await handlePopup(page);
     } else {
-        CATEGORIES.push({ name: '默认分类', url: currentUrl });
+        log(`未找到 product_id=${subject.productId} 的切换按钮，跳过`, 'ERROR');
+        return;
+    }
+
+    // 获取切换后页面的 subject_id（从页面链接中提取）
+    let subjectId = '';
+    const pageLinks = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a[href*="subject_id"]'));
+        for (const a of links) {
+            const m = a.href.match(/subject_id[\/=](\d+)/);
+            if (m) return m[1];
+        }
+        return '';
+    });
+    subjectId = pageLinks;
+
+    // 如果从链接中找不到 subject_id，尝试直接进入题库首页后从 URL 中获取
+    if (!subjectId) {
+        const curUrl = page.url();
+        const m = curUrl.match(/subject_id[\/=](\d+)/);
+        if (m) subjectId = m[1];
+    }
+
+    if (!subjectId) {
+        log(`无法获取 subject_id，尝试从题库首页链接提取...`, 'WARN');
+        // 尝试点击任意一个链接进入题库以获取 subject_id
+        const firstLink = await page.$('.question-conten-list a[href*="product_id"], .product-box a[href*="product_id"]');
+        if (firstLink) {
+            const href = await firstLink.getAttribute('href');
+            const m = href?.match(/subject_id[\/=](\d+)/);
+            if (m) subjectId = m[1];
+        }
+    }
+
+    log(`科目参数: product_id=${subject.productId}, subject_id=${subjectId || '未知'}`, 'DEBUG');
+
+    // 构造三个分类的 URL
+    const CATEGORIES = [];
+    if (subjectId) {
+        CATEGORIES.push({ name: '历年真题', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/1.html` });
+        CATEGORIES.push({ name: '模拟试卷', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/2.html` });
+        CATEGORIES.push({ name: '章节练习', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/3.html` });
+    } else {
+        log(`缺少 subject_id，将尝试从当前页面直接抓取`, 'WARN');
+        CATEGORIES.push({ name: '默认分类', url: page.url() });
     }
 
     for (const cat of CATEGORIES) {
-        log(`\n>>> 进入分类: ${cat.name}`, 'INFO');
+        log(`\n>>> [${subject.name}] 进入分类: ${cat.name}`, 'INFO');
         const typeDir = path.join(subjectDir, cat.name);
         if (!fs.existsSync(typeDir)) fs.mkdirSync(typeDir, { recursive: true });
 
