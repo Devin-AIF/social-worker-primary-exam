@@ -147,17 +147,6 @@ async function handlePopup(page) {
         // 3. 重置可能的反爬 JS 变量
         window.is_ratelimit = false;
         if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
-
-        // 4. 强制显示所有解析相关的隐藏元素
-        document.querySelectorAll('.hide, .hidden, [style*="display: none"]').forEach(el => {
-            const isContent = el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer') || el.innerText.includes('解析');
-            if (isContent) {
-                el.classList.remove('hide', 'hidden');
-                el.style.display = 'block';
-                el.style.visibility = 'visible';
-                el.style.opacity = '1';
-            }
-        });
     });
 }
 
@@ -195,10 +184,10 @@ async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
         // 先检查解析是否已经显示，如果已经显示，就不重复点击了，防止“反向操作”关闭了解析
         const analysisArea = document.querySelector('.analysis, #answer_analysis, #analysis');
-        const isAlreadyVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length));
+        const isAlreadyVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
         
-        if (isAlreadyVisible(analysisArea) && analysisArea.innerText.length > 10) {
-            return; // 已经有解析了，跳过点击
+        if (isAlreadyVisible(analysisArea) && analysisArea.innerText.length > 10 && !analysisArea.innerText.includes('点击查看解析')) {
+            return; // 已经有真实解析内容了，跳过点击
         }
 
         const clickIfVisible = (selector) => {
@@ -322,9 +311,12 @@ async function readQuestionData(page) {
                 if (isVisible(el)) {
                     const t = el.innerText.trim();
                     if (t.includes('点击查看解析')) continue;
-                    analysisText = processImages(el, 'ans');
-                    analysisText = analysisText.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
-                    break;
+                    let rawAnalysis = processImages(el, 'ans');
+                    let replaced = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
+                    analysisText = replaced || rawAnalysis;
+                    if (analysisText.length > 5 && analysisText !== '无解析') {
+                        break;
+                    }
                 }
             }
             if (analysisText !== '无解析') break;
