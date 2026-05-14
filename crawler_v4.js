@@ -817,7 +817,7 @@ async function crawlSubject(page, subject) {
                     await randomSleep(2500, 4000); // 给 Ajax 加载留出时间
                     
                     let data = await readQuestionData(page);
-                    const [curr, totalNum] = data.step.split('/').map(Number);
+                    let [curr, totalNum] = data.step.split('/').map(Number);
 
                     // 自动校准：如果页面上的实际题号 curr 比我们记录的 skipCount 还小，说明跳转没生效，应以页面为准
                     if (lastWrittenCurr === skipCount && curr < skipCount + 1) {
@@ -830,7 +830,10 @@ async function crawlSubject(page, subject) {
                         await triggerOfficialAnalysis(page);
                         await randomSleep(3000, 5000);
                         data = await readQuestionData(page);
+                        [curr, totalNum] = data.step.split('/').map(Number);
                     }
+                    // 防护：如果没抓到答案，这可能是部分多选题的机制限制，尝试点击任意一个选项触发 Ajax 返回答案
+                    if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
                         await page.evaluate(() => {
                             const opt = document.querySelector('#item_options li, .options li');
                             if (opt) opt.click();
@@ -840,7 +843,10 @@ async function crawlSubject(page, subject) {
                         data = await readQuestionData(page);
                     }
 
-                    const [curr, totalNum] = data.step.split('/').map(Number);
+
+                    // 刷新题号数据
+                    [curr, totalNum] = data.step.split('/').map(Number);
+                    
                     
                     // 1. 断点续传：物理跳过（如果当前题号还在已抓取范围内，且还没到最后，就点下一题）
                     if (curr <= skipCount) {
