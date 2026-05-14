@@ -1,0 +1,88 @@
+<div class="page-main">
+        <div class="main-width">
+            <div class="my-main clearfix">
+                <!--个人中心左侧菜单 -->
+                <!--个人中心左侧菜单 -->
+<div class="my-menu">
+	<div class="title myindex "><a href="/Home/ucenter/index.html">我的首页</a></div>
+	<div class="line"></div>
+	<div class="title subtitle">课程管理</div>
+	<ul class="subli">
+		<li class="myCourse "><a href="/Home/ucenter/myCourse.html">我的课程</a></li>
+		<li class="rebuild "><a href="/Home/ucenter/rebuild.html">重修申请</a></li>
+		<li style="display: none" id="mydowloadli"><a href="/Home/ucenter/mydowload.html">离线视频</a></li>
+		<li class="note current"><a href="/Tiku/Tikulist/index.html">我的题库</a></li>
+		<li class="myLibrary  "><a href="/Home/Ucenter/myLibrary.html">我的文库</a></li>
+		<li class="tikulist  "><a href="/Home/note/tikunote.html">我的笔记</a></li>
+		<li class="favorites "><a href="/Tiku/Favorites/index.html">我的收藏</a></li>
+		<li class="mytesterror "><a href="/Tiku/Tikulist/mytesterror.html">我的错题</a></li>
+		<li class="records "><a href="/Tiku/Records/index.html">学习记录</a></li>
+	</ul>
+	<div class="line"></div>
+	<div class="title subtitle">个人管理</div>
+	<ul class="subli">
+		<li class="cart "><a href="/Home/Cart/index.html">购物车(<span class="cart-num-show">0</span>)</a></li>
+		<li class="myorder "><a href="/Home/order/orderList.html">订单发票</a></li>
+		<li class="message "><a href="/Home/message/index.html">消息中心</a>  </li>
+		<li class="info "><a href="/Home/ucenter/info.html">修改资料</a></li>
+		<li class="feedback "><a href="/Home/feedback/index.html"> 意见反馈</a></li>
+		<li class="cancel "><a href="/Home/ucenter/cancel.html"> 账号注销</a></li>
+	</ul>
+</div>
+<script>
+	$(function() {
+		let is_electron = (function () {
+			return window && window.process && window.process.type ? true : false;
+		})();
+		if (is_electron) {
+			$('#mydowloadli').show();
+		}
+	});
+</script>
+<!--个人中心左侧菜单结束 -->
+                <!--个人中心左侧菜单结束 -->
+                <!--个人中心右侧内容 -->
+                <div class="my-right">
+                    <ul class="list-change">
+                        <li>
+                            <label>
+                                <input type="radio" name="change_id" class="change-radio" value="1525">
+                              <b>2026年初级社会工作者《初级社会工作实务》考试题库</b>
+                                <span>有效期至 2027-05-07 13:07:41</span>
+                                <a href="#" class="already-top" data-id="5702099">已置顶  </a>
+                                
+                            </label>
+                        </li><li>
+                            <label>
+                                <input type="radio" name="change_id" class="change-radio" value="317">
+                              <b>2026年中级社会工作者《中级社会工作实务》考试题库</b>
+                                <span>有效期至 2027-05-14 15:03:38</span>
+                                                                    <a href="#" class="set-top" data-id="5733172"> 置顶  </a>
+                            </label>
+                        </li><li>
+                            <label>
+                                <input type="radio" name="change_id" class="change-radio" value="39">
+                              <b>2026年中级社会工作者《中级社会工作法规与政策》考试题库</b>
+                                <span>有效期至 2027-05-14 15:03:38</span>
+                                                                    <a href="#" class="set-top" data-id="5733171"> 置顶  </a>
+                            </label>
+                        </li><li>
+                            <label>
+                                <input type="radio" name="change_id" class="change-radio" value="316">
+                              <b>2026年中级社会工作者《中级社会工作综合能力》考试题库</b>
+                                <span>有效期至 2027-05-14 15:03:38</span>
+                                                                    <a href="#" class="set-top" data-id="5733170"> 置顶  </a>
+                            </label>
+                        </li><li>
+                            <label>
+                                <input type="radio" name="change_id" class="change-radio" value="1526">
+                              <b>2026年初级社会工作者《初级社会工作综合能力》考试题库</b>
+                                <span>有效期至 2027-05-07 13:07:41</span>
+                                                                    <a href="#" class="set-top" data-id="5702100"> 置顶  </a>
+                            </label>
+                        </li>                    </ul>
+                </div>
+                <!--个人中心右侧内容结束 -->
+            </div>
+        </div>
+    </div>

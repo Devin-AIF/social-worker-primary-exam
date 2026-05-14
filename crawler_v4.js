@@ -16,6 +16,16 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const readline = require('readline');
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+function askUser(query) {
+    return new Promise(resolve => rl.question(query, resolve));
+}
 
 // --- 配置与常量 ---
 /** 
@@ -44,9 +54,51 @@ const ENABLE_DISCUSSION_FALLBACK = true;
 // --- 状态与记录初始化 ---
 let completionStatus = {};
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-if (fs.existsSync(STATUS_FILE)) {
-    try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch (e) {}
+
+/**
+ * 数据迁移：将原来直接存在抓取结果_V4根目录下的文件迁移到指定的默认科目目录中
+ * 同时更新 completion_status.json
+ */
+function migrateOldData() {
+    const defaultSubject = '2026年初级社会工作者《初级社会工作实务》考试题库';
+    const defaultSubjectDir = path.join(OUTPUT_DIR, sanitizeFileName(defaultSubject));
+    const oldDirs = ['历年真题', '模拟试卷', '章节练习'];
+    let migrated = false;
+
+    for (const d of oldDirs) {
+        const oldPath = path.join(OUTPUT_DIR, d);
+        if (fs.existsSync(oldPath) && fs.lstatSync(oldPath).isDirectory()) {
+            if (!fs.existsSync(defaultSubjectDir)) fs.mkdirSync(defaultSubjectDir, { recursive: true });
+            const newPath = path.join(defaultSubjectDir, d);
+            fs.renameSync(oldPath, newPath);
+            migrated = true;
+            log(`已将旧目录迁移至新层级: ${newPath}`, 'INFO');
+        }
+    }
+
+    if (fs.existsSync(STATUS_FILE)) {
+        try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch (e) {}
+        let statusChanged = false;
+        const newStatus = {};
+        for (const key in completionStatus) {
+            // 如果 key 是旧格式（没有包含科目名称前缀）
+            if (oldDirs.some(d => key.startsWith(d + '_'))) {
+                const newKey = `${defaultSubject}_${key}`;
+                newStatus[newKey] = completionStatus[key];
+                statusChanged = true;
+            } else {
+                newStatus[key] = completionStatus[key];
+            }
+        }
+        if (statusChanged) {
+            completionStatus = newStatus;
+            try { fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); } catch (e) {}
+            log('已更新 completion_status.json 适配新层级结构', 'INFO');
+        }
+    }
 }
+// 执行数据结构迁移并加载最新状态
+migrateOldData();
 
 /**
  * 辅助函数：清洗文件名
@@ -518,14 +570,56 @@ async function run() {
         await page.waitForTimeout(6000);
     } catch (e) { log('登录流程可能存在问题', 'WARN'); }
 
-    const CATEGORIES = [
-        { name: '历年真题', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/1.html' },
-        { name: '模拟试卷', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/2.html' }
-    ];
+    log('\n===========================================================', 'INFO');
+    log('【操作提示】登录成功！', 'INFO');
+    log('请在浏览器中，手动点击进入你想抓取的题库主页或任一列表页（包含历年真题等）。', 'INFO');
+    log('例如：点击进入《中级社会工作法规与政策》题库', 'INFO');
+    log('===========================================================\n', 'INFO');
+
+    await askUser('进入目标页面后，请在这里按【回车键】继续抓取...');
+
+    // 获取当前页面的信息
+    const currentUrl = page.url();
+    const match = currentUrl.match(/product_id[\/=](\d+)/) && currentUrl.match(/subject_id[\/=](\d+)/);
+    
+    let productId = '', subjectId = '';
+    if (match) {
+        productId = currentUrl.match(/product_id[\/=](\d+)/)[1];
+        subjectId = currentUrl.match(/subject_id[\/=](\d+)/)[1];
+    } else {
+        log('警告：从当前 URL 中无法识别 product_id 或 subject_id。这可能导致无法准确构建子分类链接。', 'WARN');
+        log('建议您进入题库的具体分类（如模拟试卷列表页）再试。当前将尝试直接抓取本页面...', 'WARN');
+    }
+
+    let subjectName = await page.evaluate(() => {
+        // 尝试从面包屑、产品标题或网页标题提取科目名
+        const breadcrumb = document.querySelector('.bread-crumb span:last-child');
+        if (breadcrumb) return breadcrumb.innerText.trim();
+        const prodTitle = document.querySelector('.product-title');
+        if (prodTitle) return prodTitle.innerText.trim();
+        const titleText = document.title;
+        return titleText.split('-')[0].trim();
+    });
+    
+    subjectName = sanitizeFileName(subjectName || '未命名科目题库');
+    log(`>>> 当前锁定科目: ${subjectName}`, 'INFO');
+    
+    const subjectDir = path.join(OUTPUT_DIR, subjectName);
+    if (!fs.existsSync(subjectDir)) fs.mkdirSync(subjectDir, { recursive: true });
+
+    // 动态构造任务分类
+    const CATEGORIES = [];
+    if (productId && subjectId) {
+        CATEGORIES.push({ name: '历年真题', url: `https://www.xs507.com/Tiku/Product/index/product_id/${productId}/subject_id/${subjectId}/type/1.html` });
+        CATEGORIES.push({ name: '模拟试卷', url: `https://www.xs507.com/Tiku/Product/index/product_id/${productId}/subject_id/${subjectId}/type/2.html` });
+        CATEGORIES.push({ name: '章节练习', url: `https://www.xs507.com/Tiku/Product/index/product_id/${productId}/subject_id/${subjectId}/type/3.html` });
+    } else {
+        CATEGORIES.push({ name: '默认分类', url: currentUrl });
+    }
 
     for (const cat of CATEGORIES) {
         log(`\n>>> 进入分类: ${cat.name}`, 'INFO');
-        const typeDir = path.join(OUTPUT_DIR, cat.name);
+        const typeDir = path.join(subjectDir, cat.name);
         if (!fs.existsSync(typeDir)) fs.mkdirSync(typeDir, { recursive: true });
 
         await page.goto(cat.url).catch(() => {});
@@ -577,7 +671,8 @@ async function run() {
         log(`识别到 ${chapters.length} 个章节`, 'INFO');
 
         for (const chapter of chapters) {
-            const statusKey = `${cat.name}_${chapter.title}_${chapter.id}`;
+            // 状态保存带上科目名，确保同一进度记录不会跨科目冲突
+            const statusKey = `${subjectName}_${cat.name}_${chapter.title}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
@@ -714,6 +809,10 @@ async function run() {
     }
     log('所有任务圆满完成！', 'INFO');
     await browser.close();
+    rl.close();
 }
 
-run().catch(console.error);
+run().catch((e) => {
+    console.error(e);
+    rl.close();
+});
