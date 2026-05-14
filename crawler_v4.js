@@ -228,34 +228,46 @@ async function waitForQuestionChange(page, oldStep, oldItemId) {
 }
 
 /**
- * 全量恢复：深度提取数据
+ * 全量恢复：深度提取数据 (爬虫的“眼睛”)
+ * 在浏览器上下文中执行的脚本，直接读取 DOM。
+ * @param {import('playwright').Page} page
+ * @returns {Promise<Object>} 提取出的题目对象
  */
 async function readQuestionData(page) {
     return page.evaluate((enableDiscussionFallback) => {
+        // 辅助方法：判断元素是否在页面上真实可见
         const isVisible = (el) => {
             if (!el) return false;
             const style = window.getComputedStyle(el);
             return !!(el.offsetParent || el.getClientRects().length) && style.display !== 'none' && style.visibility !== 'hidden';
         };
 
+        // 辅助方法：从类似 "正确答案是：A、B" 的中文字符串中提取纯字母 "AB"
         const extractLetters = (text) => {
             const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/);
             return match ? match[1].replace(/[^A-F]/g, '') : '';
         };
 
+        // 提取官方解析
         const getAnalysis = () => {
+            // 候选选择器列表，按优先级排序
             const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
             for (const s of selectors) {
                 const elements = Array.from(document.querySelectorAll(s));
+                // 倒序遍历，通常最后出现的结构是当前弹出的真实解析
                 for (let i = elements.length - 1; i >= 0; i--) {
                     const el = elements[i];
                     if (!isVisible(el)) continue;
                     let t = (el.innerText || el.textContent || '').trim();
-                    if (t.includes('点击查看解析')) continue;
+                    if (t.includes('点击查看解析')) continue; // 过滤掉伪解析占位符
+                    
+                    // 清理前缀词，如 "参考解析："
                     t = t.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
                     if (t.length > 2) return t;
                 }
             }
+            
+            // 兜底方案：如果找不到官方解析且开启了评论区提取，则尝试找带有“老师”的评论
             if (enableDiscussionFallback) {
                 const talks = Array.from(document.querySelectorAll('.tiku-talk-list li'));
                 for (let i = talks.length - 1; i >= 0; i--) {
@@ -268,7 +280,9 @@ async function readQuestionData(page) {
             return '无解析';
         };
 
+        // 提取正确答案
         const getAns = () => {
+            // 策略 1: 隐式答案。嗅探列表项的 DOM 状态（被赋予了正确类名或高亮图标）
             const opts = Array.from(document.querySelectorAll('#item_options li, .options li'));
             const rights = opts
                 .filter(li => isVisible(li) && (li.getAttribute('data-isanswer') === '1' || li.classList.contains('correct') || li.classList.contains('right') || !!li.querySelector('.right_icon')))
@@ -276,6 +290,7 @@ async function readQuestionData(page) {
                 .filter(Boolean);
             if (rights.length > 0) return [...new Set(rights)].sort().join('');
 
+            // 策略 2: 显式答案。寻找页面上明确标注“正确答案是 X”的文本区域
             const explicitSelectors = ['.right_answer', '#right_answer', '#answer_analysis', '.answer-yes', '.answer-wrong', '.analysis', '#analysis'];
             for (const selector of explicitSelectors) {
                 const elements = Array.from(document.querySelectorAll(selector));
@@ -293,6 +308,7 @@ async function readQuestionData(page) {
             type: document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型',
             step,
             itemId: document.querySelector('#item_id')?.innerText.trim() || '',
+            // 将选项直接拼接为 Markdown 友好的多行文本
             options: Array.from(document.querySelectorAll('#item_options li, .options li')).filter(isVisible).map(li => li.innerText.trim()).join('\n'),
             answer: getAns(),
             analysis: getAnalysis(),
@@ -300,14 +316,17 @@ async function readQuestionData(page) {
             images: []
         };
 
+        // 提取题目文本并处理内嵌图片
         const titEl = document.querySelector('#item_title, .item-title, .subject-title');
         if (titEl) {
+            // 使用 cloneNode(true) 进行深拷贝，防止原地修改破坏原网页的 DOM
             const clone = titEl.cloneNode(true);
             clone.querySelectorAll('img').forEach((img, idx) => {
                 const src = img.getAttribute('src');
                 if (src) {
-                    const name = `q_${step.replace(/\//g, '_')}_${idx}.png`;
+                    const name = `q_${step.replace(/\//g, '_')}_${idx}.png`; // 基于题号生成唯一图片名
                     res.images.push({ name, url: src });
+                    // 原地将 img 标签替换为 Markdown 图片语法
                     img.replaceWith(` ![图](./images/${name}) `);
                 }
             });
@@ -318,18 +337,22 @@ async function readQuestionData(page) {
 }
 
 /**
- * 全量恢复：进入章节
+ * 全量恢复：进入章节并初始化刷题状态
+ * 负责点击进入指定章节，开启“背题模式”，并跳转到断点所在的题号。
+ * @param {import('playwright').Page} page
+ * @param {string} chapterUrl 章节的初始 URL
+ * @param {number} questionIndex 断点索引（已抓取数量），用于跳过已抓取的题目
  */
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     await page.goto(chapterUrl).catch(() => {});
     await randomSleep(4000, 6000);
     await handlePopup(page);
     
-    // 点击开始做题
+    // 1. 点击进入做题界面
     await safeClick(page, 'a.enable.a2, a:has-text("开始做题"), #PaperStartTimes', 6000);
     await handlePopup(page);
 
-    // 激活背题模式
+    // 2. 尝试激活“背题模式” (该模式下通常会直接显示正确答案，极大降低抓取难度)
     const activated = await page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
             .find(el => (el.innerText || '').trim() === '背题模式' && el.offsetParent !== null);
@@ -342,13 +365,13 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         await handlePopup(page);
     }
 
-    // 跳转
+    // 3. 断点续传跳转：点击答题卡上的特定索引直接跳到未抓取的题目
     if (questionIndex > 0) {
         log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
         await page.waitForSelector('#tiku_sheet_card li', { timeout: 8000 }).catch(() => {});
         await page.evaluate((index) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li');
-            const target = Math.min(index, cards.length - 1);
+            const target = Math.min(index, cards.length - 1); // 防止索引越界
             if (target >= 0 && cards[target]) cards[target].click();
         }, questionIndex);
         await randomSleep(4000, 6000);
@@ -357,7 +380,11 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
 }
 
 /**
- * 串题检测
+ * 串题检测 (防御性编程)
+ * 判断抓取到的解析是不是上一题残留的。
+ * @param {Object} currentData 当前提取到的数据
+ * @param {Object} lastSnapshot 上一题的数据快照
+ * @returns {boolean} 是否疑似串题
  */
 function isLikelyStaleAnalysis(currentData, lastSnapshot) {
     if (!currentData || !lastSnapshot) return false;
@@ -366,7 +393,9 @@ function isLikelyStaleAnalysis(currentData, lastSnapshot) {
 }
 
 /**
- * 图片下载
+ * 图片异步下载
+ * @param {string} url 图片源地址
+ * @param {string} dest 本地存储路径
  */
 async function downloadImage(url, dest) {
     if (!url) return;
@@ -386,7 +415,7 @@ async function downloadImage(url, dest) {
 
 /**
  * =================================================================================
- * 主循环
+ * 主循环：任务分配与断点续传核心引擎
  * =================================================================================
  */
 async function run() {
@@ -420,12 +449,13 @@ async function run() {
         await page.goto(cat.url).catch(() => {});
         await randomSleep(3500, 5500);
 
-        // 核心：精准识别列表
+        // 核心：精准识别列表并提取各章节元数据
         const chapters = await page.evaluate(() => {
             const container = document.querySelector('.question-conten-list, .product-box, #main-tiku-box') || document.body;
             return Array.from(container.querySelectorAll('a'))
                 .filter(a => {
                     const t = a.innerText.trim();
+                    // 过滤出真正代表“进入考试/练习”的有效链接
                     const isAction = (t.includes('模式') || t.includes('做题') || t.includes('开始')) && a.href.includes('product_id');
                     const isLink = a.closest('.title') && (a.href.includes('paper_id') || a.href.includes('product_id'));
                     return isAction || isLink;
@@ -436,6 +466,7 @@ async function run() {
                     const url = a.href;
                     
                     let id = '';
+                    // 使用正则提取唯一 ID 供断点续传使用，按优先级探测
                     const mPaper = url.match(/paper_id[\/=](\d+)/);
                     const mKnow = url.match(/know_id[\/=](\d+)/);
                     const mProd = url.match(/product_id[\/=](\d+)/);
@@ -444,10 +475,11 @@ async function run() {
                     else if (mProd) id = 'prod-' + mProd[1];
                     else id = 'unknown-' + Math.random().toString(36).slice(2, 7);
 
+                    // 提取该试卷包含的总题数 (如 "共 100 题")
                     const mCount = p?.innerText.match(/共\s*(\d+)\s*题/) || p?.innerText.match(/\/(\d+)/);
                     return { title, url, id, total: mCount ? parseInt(mCount[1], 10) : 0 };
                 })
-                .filter((c, i, l) => l.findIndex(item => item.id === c.id) === i);
+                .filter((c, i, l) => l.findIndex(item => item.id === c.id) === i); // 依据 ID 去重
         });
 
         log(`识别到 ${chapters.length} 个章节`, 'INFO');
@@ -457,7 +489,7 @@ async function run() {
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
-            // 进度判定
+            // 综合判断断点续传进度（取 JSON 记录和本地 MD 文件已存题数的最大值）
             let savedInfo = completionStatus[statusKey] || {};
             if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
             const skipCount = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
@@ -492,7 +524,7 @@ async function run() {
                     
                     let data = await readQuestionData(page);
                     
-                    // 防护：如果没抓到答案，尝试点击选项触发 Ajax
+                    // 防护：如果没抓到答案，这可能是部分多选题的机制限制，尝试点击任意一个选项触发 Ajax 返回答案
                     if (data.answer === '未知' || data.analysis === '无解析') {
                         await page.evaluate(() => document.querySelector('#item_options li, .options li')?.click());
                         await randomSleep(2000, 3000);
