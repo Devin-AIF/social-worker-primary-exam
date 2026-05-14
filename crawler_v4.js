@@ -657,47 +657,55 @@ async function crawlSubject(page, subject) {
     await page.waitForLoadState('networkidle').catch(() => {});
     await handlePopup(page);
 
-    // 获取切换后页面的 subject_id（从页面链接中提取）
-    let subjectId = '';
-    const pageLinks = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[href*="subject_id"]'));
-        for (const a of links) {
-            const m = a.href.match(/subject_id[\/=](\d+)/);
-            if (m) return m[1];
-        }
-        return '';
+    // 关键：从页面动态提取分类链接（适配“进入题库”列表）
+    const CATEGORIES = [];
+    const extractedCats = await page.evaluate(() => {
+        const results = [];
+        const items = document.querySelectorAll('.list-count li');
+        items.forEach(li => {
+            const a = li.querySelector('a');
+            const name = li.querySelector('b')?.innerText.trim();
+            if (a && name) {
+                // 仅抓取我们感兴趣的分类
+                if (['历年真题', '模拟试卷', '章节练习'].includes(name)) {
+                    results.push({ name, url: a.href });
+                }
+            }
+        });
+        return results;
     });
-    subjectId = pageLinks;
 
-    // 如果从链接中找不到 subject_id，尝试直接进入题库首页后从 URL 中获取
-    if (!subjectId) {
-        const curUrl = page.url();
-        const m = curUrl.match(/subject_id[\/=](\d+)/);
-        if (m) subjectId = m[1];
-    }
+    if (extractedCats.length > 0) {
+        log(`成功从页面提取到 ${extractedCats.length} 个分类链接`, 'INFO');
+        CATEGORIES.push(...extractedCats);
+    } else {
+        log('未发现 .list-count 链接列表，尝试通过参数构造...', 'DEBUG');
+        // 获取切换后页面的 subject_id（从页面链接中提取）
+        let subjectId = '';
+        const pageLinks = await page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a[href*="subject_id"]'));
+            for (const a of links) {
+                const m = a.href.match(/subject_id[\/=](\d+)/);
+                if (m) return m[1];
+            }
+            return '';
+        });
+        subjectId = pageLinks;
 
-    if (!subjectId) {
-        log(`无法获取 subject_id，尝试从题库首页链接提取...`, 'WARN');
-        // 尝试点击任意一个链接进入题库以获取 subject_id
-        const firstLink = await page.$('.question-conten-list a[href*="product_id"], .product-box a[href*="product_id"]');
-        if (firstLink) {
-            const href = await firstLink.getAttribute('href');
-            const m = href?.match(/subject_id[\/=](\d+)/);
+        if (!subjectId) {
+            const curUrl = page.url();
+            const m = curUrl.match(/subject_id[\/=](\d+)/);
             if (m) subjectId = m[1];
         }
-    }
 
-    log(`科目参数: product_id=${subject.productId}, subject_id=${subjectId || '未知'}`, 'DEBUG');
-
-    // 构造三个分类的 URL
-    const CATEGORIES = [];
-    if (subjectId) {
-        CATEGORIES.push({ name: '历年真题', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/1.html` });
-        CATEGORIES.push({ name: '模拟试卷', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/2.html` });
-        CATEGORIES.push({ name: '章节练习', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/3.html` });
-    } else {
-        log(`缺少 subject_id，将尝试从当前页面直接抓取`, 'WARN');
-        CATEGORIES.push({ name: '默认分类', url: page.url() });
+        if (subjectId) {
+            CATEGORIES.push({ name: '历年真题', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/1.html` });
+            CATEGORIES.push({ name: '模拟试卷', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/2.html` });
+            CATEGORIES.push({ name: '章节练习', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/3.html` });
+        } else {
+            log(`缺少 subject_id，将尝试从当前页面直接抓取`, 'WARN');
+            CATEGORIES.push({ name: '默认分类', url: page.url() });
+        }
     }
 
     for (const cat of CATEGORIES) {
