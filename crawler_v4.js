@@ -217,25 +217,28 @@ async function readQuestionData(page) {
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     await page.goto(chapterUrl).catch(() => {});
     await randomSleep(4000, 6000);
+    await handlePopup(page);
     
     // 点击开始做题
-    const startBtn = 'a.enable.a2, a:has-text("开始做题"), #PaperStartTimes';
-    const hasStart = await page.$(startBtn);
-    if (hasStart) {
-        await hasStart.click({ force: true });
-        await randomSleep(5000, 7000);
-    }
+    await safeClick(page, 'a.enable.a2, a:has-text("开始做题"), #PaperStartTimes', 6000);
+    await handlePopup(page);
 
     // 激活背题模式
-    await page.evaluate(() => {
+    const activated = await page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
             .find(el => (el.innerText || '').trim() === '背题模式' && el.offsetParent !== null);
-        if (btn) btn.click();
+        if (btn) { btn.click(); return true; }
+        return false;
     });
-    await randomSleep(3000, 5000);
+
+    if (activated) {
+        await randomSleep(3000, 5000);
+        await handlePopup(page);
+    }
 
     // 跳转
     if (questionIndex > 0) {
+        log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
         await page.waitForSelector('#tiku_sheet_card li', { timeout: 8000 }).catch(() => {});
         await page.evaluate((index) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li');
@@ -243,6 +246,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
             if (target >= 0 && cards[target]) cards[target].click();
         }, questionIndex);
         await randomSleep(4000, 6000);
+        await handlePopup(page);
     }
 }
 
