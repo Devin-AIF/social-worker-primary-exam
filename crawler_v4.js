@@ -1,13 +1,26 @@
 /**
  * =================================================================================
- * 自动化抓取脚本 V17.4 (最终全量加固版)
+ * 自动化抓取脚本 V20.0 (终极全量加固版 - 生产级)
  * =================================================================================
  * 
- * 【核心设计原则】
- * 1. 稳定性第一：不追求极速，追求每一题都有答案、有解析。
- * 2. 全量恢复：严禁删减任何曾证明有效的 DOM 选择器和激活逻辑。
- * 3. 结构化日志：精准记录 ID、进度、总数，支持同名试卷共存。
- * 4. 深度防御：处理各类遮罩、异步加载、串题残留。
+ * 【功能综述 (Features)】
+ * 1. 全自动多题库遍历：支持跨科目、跨分类（章节练习/历年真题/模拟试卷）的全自动循环爬取。
+ * 2. 智能进度同步 (State Sync)：采用 JSON 状态文件 (completion_status.json) 驱动，
+ *    支持“科目级”和“章节级”双重跳过逻辑，极大提升运行效率。
+ * 3. 强力顺序校验 (Sequence Guard)：实时监控网页题号，若发现跳题或乱序，
+ *    立即通过“答题卡”强制纠偏，确保 Markdown 输出 100% 连续且不重不漏。
+ * 4. 深度解析提取 (Deep Analysis)：
+ *    - 支持客观题与主观题（问答、案例分析）的差异化解析触发。
+ *    - 采用“动态等待 + 多级选择器”策略，确保 Ajax 异步内容完全加载后再读取。
+ * 5. “背题模式”强制重置：启动时可选追加 `again=1` 强制刷新服务器端状态，解决“进度缓存”导致的起始位错误。
+ * 6. 共享题干支持：完美提取“一干多题”结构的父级题干与子级题目。
+ * 7. 讨论区后备方案：当官方解析缺失时，自动扫描讨论区提取“老师”级别的优质回答。
+ * 8. 图片本地化：自动下载题目中的图片并转化为 Markdown 相对路径引用，确保离线可用。
+ * 
+ * 【设计哲学 (Design Philosophy)】
+ * - 稳定性高于速度：内置多重 handlePopup 和 randomSleep，模拟人类行为，规避风控。
+ * - 声明式恢复：优先遵循进度文件，本地物理文件仅作为最后一道防线。
+ * - 容错性：捕获所有非致命异常，支持异常后自动重试并继续后续任务。
  * =================================================================================
  */
 
@@ -242,11 +255,16 @@ async function ensureReciteMode(page) {
  * 在单页应用（SPA）中，某些答案和解析只有在用户点击特定按钮后才会经由 Ajax 加载或解除隐藏。
  * 本函数采取“广撒网”策略，遍历点击所有疑似解析按钮的节点。
  */
+/**
+ * 深度解析触发引擎
+ * 针对 SPA 应用，很多内容是异步 Ajax 加载的。
+ * 本函数通过模拟用户点击“查看解析”或“显示答案”等操作来触发数据加载。
+ */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
         const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
         
-        // 1. 检查解析是否已经完全展开且包含真实内容
+        // 1. 检查解析是否已经完全展开且包含真实内容（防止重复点击导致关闭）
         const getVisibleAnalysis = () => {
             const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail'];
             for (const s of sel) {
@@ -258,7 +276,7 @@ async function triggerOfficialAnalysis(page) {
         
         if (getVisibleAnalysis()) return; 
 
-        // 2. 触发各种可能的解析/答案按钮
+        // 2. 触发各种可能的解析/答案按钮（支持客观题和主观题）
         const clickSelectors = [
             '.click_analysis', 
             '[data-type="analysis"]', 
@@ -279,7 +297,7 @@ async function triggerOfficialAnalysis(page) {
             }
         }
 
-        // 3. 针对问答题/主观题：点击“查看答案”或类似文本
+        // 3. 针对问答题/主观题：通过按钮文本进行特征匹配点击
         const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
             .filter(el => {
                 const t = (el.innerText || '').trim();
@@ -288,10 +306,10 @@ async function triggerOfficialAnalysis(page) {
         textButtons.forEach(el => el.click());
     });
 
-    // 等待加载
+    // 为 Ajax 异步加载预留缓冲时间
     await page.waitForTimeout(1500);
     
-    // 动态等待内容加载
+    // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
     await page.waitForFunction(() => {
         const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail');
         return el && el.innerText.trim().length > 10 && !el.innerText.includes('点击查看解析');
@@ -477,9 +495,14 @@ async function readQuestionData(page) {
     }, ENABLE_DISCUSSION_FALLBACK);
 }
 
+/**
+ * 章节初始化与精准定位
+ * 负责重置页面状态、开启背题模式，并利用“答题卡”跳转到断点。
+ */
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     log(`正在打开章节 URL: ${chapterUrl}`, 'DEBUG');
-    // 如果是重新开始（questionIndex=0），尝试在 URL 后追加 again=1 以重置服务器端的练习状态
+    
+    // 强制重置策略：如果从 0 开始，追加 again=1 确保服务器端不使用旧进度缓存
     const finalUrl = (questionIndex === 0 && !chapterUrl.includes('again=1')) 
         ? (chapterUrl.includes('?') ? `${chapterUrl}&again=1` : `${chapterUrl}?again=1`)
         : chapterUrl;
@@ -488,7 +511,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     await randomSleep(4000, 6000);
     await handlePopup(page);
     
-    // 1. 点击进入做题界面
+    // 1. 自动识别并点击各种风格的启动按钮
     const startSelectors = [
         'a.enable.a2', 
         'a:has-text("开始做题")', 
@@ -509,7 +532,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         }
     }
 
-    // 2. 尝试激活“背题模式”
+    // 2. 激活“背题模式” (该模式下 HTML 中会直接附带正确答案，极大提高解析准确度)
     const activated = await page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
             .find(el => {
@@ -526,10 +549,10 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         await handlePopup(page);
     }
 
-    // 3. 断点续传：使用“答题卡”进行精准跳转（比输入框更可靠）
+    // 3. 核心机制：答题卡跳转 (比输入框跳转更抗干扰)
     if (questionIndex > 0) {
         log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
-        // 先确保答题卡是展开的
+        // 确保答题卡菜单已展开
         await page.evaluate(() => {
             const cardBtn = document.querySelector('.bd_dtk, .answer-card-btn, #tiku_sheet');
             if (cardBtn && !!(cardBtn.offsetParent || cardBtn.getClientRects().length)) cardBtn.click();
@@ -547,7 +570,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         }, questionIndex);
 
         if (!jumped) {
-            log('答题卡跳转失败，尝试输入框跳转...', 'WARN');
+            log('答题卡定位失败，尝试输入框后备方案...', 'WARN');
             const jumpInput = await page.$('.bd_bt_input');
             if (jumpInput) {
                 await jumpInput.focus();
