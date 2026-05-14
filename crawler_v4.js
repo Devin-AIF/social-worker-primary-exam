@@ -1105,7 +1105,10 @@ async function crawlSubject(page, subject) {
                         break;
                     }
                 }
-            } catch (e) { log(`抓取异常: ${e.message}`, 'ERROR'); }
+            } catch (e) { 
+                log(`抓取异常: ${e.message}`, 'ERROR'); 
+                await takeScreenshot(page, 'chapter_loop_error');
+            }
         }
     }
     
