@@ -364,7 +364,16 @@ async function run() {
 
                 let lastSnapshot = { step: '__INIT__' };
                 while (true) {
-                    await page.waitForSelector('#item_title', { timeout: 15000 });
+                    await handlePopup(page); // 每一题开始前都清理一次遮罩
+                    try {
+                        await page.waitForSelector('#item_title', { timeout: 15000 });
+                    } catch (e) {
+                        // 如果超时，再尝试清理一次遮罩并重试一次
+                        log('等待题目超时，尝试清理遮罩重试...', 'WARN');
+                        await handlePopup(page);
+                        await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法定位题目元素，页面可能未正常加载'); });
+                    }
+                    
                     await triggerOfficialAnalysis(page);
                     await randomSleep(2000, 3000);
                     
