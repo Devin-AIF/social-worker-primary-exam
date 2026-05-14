@@ -1,13 +1,13 @@
 /**
  * =================================================================================
- * 自动化抓取脚本 V17.3 (回归加固版)
+ * 自动化抓取脚本 V17.4 (最终全量加固版)
  * =================================================================================
  * 
- * 【修复说明】
- * 1. 恢复了更强大的数据提取引擎：支持 7 种以上答案识别路径和 5 种以上解析识别路径。
- * 2. 强化背题模式激活：采用精准文本匹配，防止模式切换失败导致的解析缺失。
- * 3. 增强异步稳定性：在点击“下一题”后增加多重 DOM 状态校验，确保数据刷新后再读取。
- * 4. 优化写入策略：对于“未知”答案或缺失解析的题目增加强制重试机制，宁愿慢也要准。
+ * 【核心设计原则】
+ * 1. 稳定性第一：不追求极速，追求每一题都有答案、有解析。
+ * 2. 全量恢复：严禁删减任何曾证明有效的 DOM 选择器和激活逻辑。
+ * 3. 结构化日志：精准记录 ID、进度、总数，支持同名试卷共存。
+ * 4. 深度防御：处理各类遮罩、异步加载、串题残留。
  * =================================================================================
  */
 
@@ -36,10 +36,16 @@ if (fs.existsSync(STATUS_FILE)) {
     try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch (e) {}
 }
 
+/**
+ * 辅助函数：清洗文件名
+ */
 function sanitizeFileName(name) {
     return name.replace(/[\\/:"*?<>|]/g, '_');
 }
 
+/**
+ * 辅助函数：读取本地 MD 已抓取数量
+ */
 function getCompletedCount(outputFile) {
     if (!fs.existsSync(outputFile)) return 0;
     try {
@@ -48,10 +54,16 @@ function getCompletedCount(outputFile) {
     } catch (e) { return 0; }
 }
 
+/**
+ * 持久化进度
+ */
 function saveStatus() {
     try { fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); } catch (e) {}
 }
 
+/**
+ * 记录日志
+ */
 function log(message, type = 'INFO') {
     const timestamp = new Date().toISOString();
     const formattedMessage = `[${timestamp}] [${type}] ${message}\n`;
@@ -59,20 +71,104 @@ function log(message, type = 'INFO') {
     console.log(formattedMessage.trim());
 }
 
-async function randomSleep(min, max) {
-    const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+async function sleep(ms) {
     await new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function randomSleep(min, max) {
+    const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+    await sleep(ms);
+}
+
 /**
- * 核心：等待题目彻底刷新
+ * 全量恢复：处理遮罩和弹窗拦截
+ */
+async function handlePopup(page) {
+    await page.evaluate(() => {
+        // 移除所有已知遮罩层
+        const blockers = [
+            '#video_analysis_ratelimit_overlay',
+            '.layui-layer-shade',
+            '.layerSaveSuccess',
+            '#popup_box',
+            '#popup_box_bg'
+        ];
+        blockers.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
+
+        // 重置可能的反爬 JS 变量
+        window.is_ratelimit = false;
+        if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
+
+        // 强行显示被隐藏的解析区域
+        document.querySelectorAll('.hide, .hidden, [style*="display: none"]').forEach(el => {
+            if (el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer')) {
+                el.classList.remove('hide', 'hidden');
+                el.style.display = 'block';
+                el.style.visibility = 'visible';
+                el.style.opacity = '1';
+            }
+        });
+    });
+}
+
+/**
+ * 全量恢复：安全点击封装
+ */
+async function safeClick(page, selector, waitAfter = 0) {
+    const element = await page.$(selector);
+    if (!element) return false;
+
+    await handlePopup(page);
+    try {
+        await element.click({ force: true, timeout: 5000 });
+    } catch (e) {
+        // 后备方案：JS 原生点击
+        await element.evaluate(el => el.click()).catch(() => {});
+    }
+    if (waitAfter > 0) await page.waitForTimeout(waitAfter);
+    await handlePopup(page);
+    return true;
+}
+
+/**
+ * 全量恢复：触发解析显示
+ */
+async function triggerOfficialAnalysis(page) {
+    await page.evaluate(() => {
+        const clickIfVisible = (selector) => {
+            const elements = Array.from(document.querySelectorAll(selector));
+            for (const el of elements) {
+                const visible = !!(el.offsetParent || el.getClientRects().length);
+                if (visible) el.click();
+            }
+        };
+
+        // 点击所有可能的解析按钮
+        clickIfVisible('.click_analysis');
+        clickIfVisible('[data-type="analysis"]');
+        clickIfVisible('.analysis-btn, .show-analysis, .jiexi, .answer-analysis');
+
+        // 根据文本点击
+        const tabs = Array.from(document.querySelectorAll('a, button, span, div'))
+            .filter(el => {
+                const t = (el.innerText || '').trim();
+                return (t === '查看解析' || t === '解析' || t === '参考解析') && !!(el.offsetParent || el.getClientRects().length);
+            });
+        tabs.forEach(el => el.click());
+    });
+}
+
+/**
+ * 全量恢复：等待题目刷新
  */
 async function waitForQuestionChange(page, oldStep, oldItemId, oldAnalysis) {
+    // 1. 等待题号变化
     await page.waitForFunction((old) => {
         const el = document.querySelector('#item_step, .item-step');
         return (el?.innerText || '').trim() !== old;
     }, oldStep, { timeout: 12000 }).catch(() => {});
 
+    // 2. 等待 DOM ID 变化
     if (oldItemId) {
         await page.waitForFunction((old) => {
             const el = document.querySelector('#item_id');
@@ -80,46 +176,11 @@ async function waitForQuestionChange(page, oldStep, oldItemId, oldAnalysis) {
             return t.length > 0 && t !== old;
         }, oldItemId, { timeout: 8000 }).catch(() => {});
     }
-    await randomSleep(1200, 2000); // 增加缓冲，确保解析区也刷新
+    await randomSleep(1500, 2500); // 必须留够缓冲时间
 }
 
 /**
- * 核心：触发解析显示（多重策略）
- */
-async function triggerOfficialAnalysis(page) {
-    await page.evaluate(() => {
-        // 1. 强制显示所有隐藏的解析相关 DOM
-        const hideEls = document.querySelectorAll('.hide, [style*="display: none"]');
-        hideEls.forEach(el => {
-            if (el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer')) {
-                el.classList.remove('hide');
-                el.style.display = 'block';
-                el.style.visibility = 'visible';
-                el.style.opacity = '1';
-            }
-        });
-
-        // 2. 模拟点击所有可能的解析按钮
-        const selectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.answer-analysis'];
-        selectors.forEach(s => {
-            document.querySelectorAll(s).forEach(el => {
-                const visible = !!(el.offsetParent || el.getClientRects().length);
-                if (visible) el.click();
-            });
-        });
-
-        // 3. 针对文本内容点击
-        Array.from(document.querySelectorAll('a, button, span, div'))
-            .filter(el => {
-                const t = (el.innerText || '').trim();
-                return (t === '查看解析' || t === '解析' || t === '参考解析') && !!(el.offsetParent || el.getClientRects().length);
-            })
-            .forEach(el => el.click());
-    });
-}
-
-/**
- * 核心：深度读取题目数据
+ * 全量恢复：深度提取数据
  */
 async function readQuestionData(page) {
     return page.evaluate((enableDiscussionFallback) => {
@@ -129,13 +190,11 @@ async function readQuestionData(page) {
             return !!(el.offsetParent || el.getClientRects().length) && style.display !== 'none' && style.visibility !== 'hidden';
         };
 
-        // 提取正确答案字母（从文本中提取）
         const extractLetters = (text) => {
             const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/);
             return match ? match[1].replace(/[^A-F]/g, '') : '';
         };
 
-        // 获取解析内容
         const getAnalysis = () => {
             const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
             for (const s of selectors) {
@@ -161,7 +220,6 @@ async function readQuestionData(page) {
             return '无解析';
         };
 
-        // 获取答案
         const getAns = () => {
             const opts = Array.from(document.querySelectorAll('#item_options li, .options li'));
             const rights = opts
@@ -212,7 +270,7 @@ async function readQuestionData(page) {
 }
 
 /**
- * 核心：进入章节并激活背题模式
+ * 全量恢复：进入章节
  */
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     await page.goto(chapterUrl).catch(() => {});
@@ -250,12 +308,18 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     }
 }
 
+/**
+ * 串题检测
+ */
 function isLikelyStaleAnalysis(currentData, lastSnapshot) {
     if (!currentData || !lastSnapshot) return false;
     if (currentData.analysis === '无解析' || currentData.analysis === '未知') return false;
     return currentData.step !== lastSnapshot.step && currentData.analysis === lastSnapshot.analysis;
 }
 
+/**
+ * 图片下载
+ */
 async function downloadImage(url, dest) {
     if (!url) return;
     try {
@@ -278,13 +342,14 @@ async function downloadImage(url, dest) {
  * =================================================================================
  */
 async function run() {
-    log('正在开启 V17.3 回归加固版...', 'INFO');
+    log('正在开启 V17.4 最终全量加固版...', 'INFO');
     const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     const page = await context.newPage();
 
     // 自动登录
     try {
+        log('尝试自动登录...', 'INFO');
         await page.goto(LOGIN_URL);
         await page.waitForTimeout(2000);
         await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
@@ -292,7 +357,7 @@ async function run() {
         await page.fill('input[placeholder*="密码"]', AUTH.pass);
         await page.click('.login-form-btn');
         await page.waitForTimeout(6000);
-    } catch (e) { log('登录失败', 'WARN'); }
+    } catch (e) { log('登录流程可能存在问题', 'WARN'); }
 
     const CATEGORIES = [
         { name: '历年真题', url: 'https://www.xs507.com/Tiku/Product/index/product_id/1525/subject_id/1563/type/1.html' },
@@ -300,13 +365,14 @@ async function run() {
     ];
 
     for (const cat of CATEGORIES) {
-        log(`>>> 分类: ${cat.name}`, 'INFO');
+        log(`\n>>> 进入分类: ${cat.name}`, 'INFO');
         const typeDir = path.join(OUTPUT_DIR, cat.name);
         if (!fs.existsSync(typeDir)) fs.mkdirSync(typeDir, { recursive: true });
 
-        await page.goto(cat.url);
-        await randomSleep(3000, 5000);
+        await page.goto(cat.url).catch(() => {});
+        await randomSleep(3500, 5500);
 
+        // 核心：精准识别列表
         const chapters = await page.evaluate(() => {
             const container = document.querySelector('.question-conten-list, .product-box, #main-tiku-box') || document.body;
             return Array.from(container.querySelectorAll('a'))
@@ -320,13 +386,11 @@ async function run() {
                     const p = a.closest('li, tr, .item, .big');
                     let title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
                     const url = a.href;
-
-                    // 提取唯一 ID (优先 paper_id, 其次 know_id, 最后 product_id)
+                    
                     let id = '';
                     const mPaper = url.match(/paper_id[\/=](\d+)/);
                     const mKnow = url.match(/know_id[\/=](\d+)/);
                     const mProd = url.match(/product_id[\/=](\d+)/);
-
                     if (mPaper) id = 'paper-' + mPaper[1];
                     else if (mKnow) id = 'know-' + mKnow[1];
                     else if (mProd) id = 'prod-' + mProd[1];
@@ -335,22 +399,24 @@ async function run() {
                     const mCount = p?.innerText.match(/共\s*(\d+)\s*题/) || p?.innerText.match(/\/(\d+)/);
                     return { title, url, id, total: mCount ? parseInt(mCount[1], 10) : 0 };
                 })
-                // 根据 ID 去重，确保每个卷子只抓一次
                 .filter((c, i, l) => l.findIndex(item => item.id === c.id) === i);
         });
+
+        log(`识别到 ${chapters.length} 个章节`, 'INFO');
 
         for (const chapter of chapters) {
             const statusKey = `${cat.name}_${chapter.title}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
-            let saved = completionStatus[statusKey] || {};
-            if (typeof saved === 'number') saved = { completed: saved };
-            const skipCount = Math.max(Number(saved.completed) || 0, getCompletedCount(outputFile));
-            const total = chapter.total || saved.total || 0;
+            // 进度判定
+            let savedInfo = completionStatus[statusKey] || {};
+            if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
+            const skipCount = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
+            const totalGoal = chapter.total || savedInfo.total || 0;
 
-            if (total > 0 && skipCount >= total) {
-                log(`[跳过] ${chapter.title}`, 'INFO');
+            if (totalGoal > 0 && skipCount >= totalGoal) {
+                log(`[跳过] 已完成: ${chapter.title} (${skipCount}/${totalGoal})`, 'INFO');
                 continue;
             }
 
@@ -364,22 +430,21 @@ async function run() {
 
                 let lastSnapshot = { step: '__INIT__' };
                 while (true) {
-                    await handlePopup(page); // 每一题开始前都清理一次遮罩
+                    await handlePopup(page);
                     try {
                         await page.waitForSelector('#item_title', { timeout: 15000 });
                     } catch (e) {
-                        // 如果超时，再尝试清理一次遮罩并重试一次
-                        log('等待题目超时，尝试清理遮罩重试...', 'WARN');
+                        log('等待题目超时，清理遮罩重试...', 'WARN');
                         await handlePopup(page);
-                        await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法定位题目元素，页面可能未正常加载'); });
+                        await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法进入题目页'); });
                     }
                     
                     await triggerOfficialAnalysis(page);
-                    await randomSleep(2000, 3000);
+                    await randomSleep(2000, 3500);
                     
                     let data = await readQuestionData(page);
                     
-                    // 强制纠偏：如果没抓到答案，尝试点击第一个选项激活
+                    // 防护：如果没抓到答案，尝试点击选项触发 Ajax
                     if (data.answer === '未知' || data.analysis === '无解析') {
                         await page.evaluate(() => document.querySelector('#item_options li, .options li')?.click());
                         await randomSleep(2000, 3000);
@@ -388,11 +453,13 @@ async function run() {
                     }
 
                     const [curr, totalNum] = data.step.split('/').map(Number);
+                    
+                    // 断点续传：跳过已抓取
                     if (curr <= skipCount) {
                         const next = await page.$('.subject-next, #next_item');
                         if (next && curr < totalNum) {
                             const old = { step: data.step, id: data.itemId };
-                            await next.click();
+                            await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
                             continue;
                         }
@@ -401,7 +468,7 @@ async function run() {
 
                     if (isLikelyStaleAnalysis(data, lastSnapshot)) data.analysis = '无解析';
 
-                    // 写入 Markdown
+                    // 写入
                     const md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
                     fs.appendFileSync(outputFile, md);
 
@@ -413,22 +480,25 @@ async function run() {
                     saveStatus();
                     lastSnapshot = data;
 
-                    process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
+                    process.stdout.write(`\r进度: ${data.step} | ID: ${chapter.id} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                     await Promise.all(data.images.map(img => downloadImage(img.url, path.join(chapterDir, 'images', img.name))));
 
                     if (curr < totalNum) {
                         const next = await page.$('.subject-next, #next_item');
                         if (next) {
                             const old = { step: data.step, id: data.itemId };
-                            await next.click();
+                            await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
                         } else break;
-                    } else break;
+                    } else {
+                        log(`\n>> [完成] ${chapter.title}`, 'INFO');
+                        break;
+                    }
                 }
             } catch (e) { log(`抓取异常: ${e.message}`, 'ERROR'); }
         }
     }
-    log('全部完成！', 'INFO');
+    log('所有任务圆满完成！', 'INFO');
     await browser.close();
 }
 
