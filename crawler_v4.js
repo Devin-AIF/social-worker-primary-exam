@@ -235,54 +235,76 @@ async function waitForQuestionChange(page, oldStep, oldItemId) {
  */
 async function readQuestionData(page) {
     return page.evaluate((enableDiscussionFallback) => {
-        // 辅助方法：判断元素是否在页面上真实可见
         const isVisible = (el) => {
             if (!el) return false;
             const style = window.getComputedStyle(el);
             return !!(el.offsetParent || el.getClientRects().length) && style.display !== 'none' && style.visibility !== 'hidden';
         };
 
-        // 辅助方法：从类似 "正确答案是：A、B" 的中文字符串中提取纯字母 "AB"
         const extractLetters = (text) => {
             const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/);
             return match ? match[1].replace(/[^A-F]/g, '') : '';
         };
 
-        // 提取官方解析
-        const getAnalysis = () => {
-            // 候选选择器列表，按优先级排序
-            const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
-            for (const s of selectors) {
-                const elements = Array.from(document.querySelectorAll(s));
-                // 倒序遍历，通常最后出现的结构是当前弹出的真实解析
-                for (let i = elements.length - 1; i >= 0; i--) {
-                    const el = elements[i];
-                    if (!isVisible(el)) continue;
-                    let t = (el.innerText || el.textContent || '').trim();
-                    if (t.includes('点击查看解析')) continue; // 过滤掉伪解析占位符
-                    
-                    // 清理前缀词，如 "参考解析："
-                    t = t.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
-                    if (t.length > 2) return t;
+        const images = [];
+        const step = document.querySelector('#item_step, .item-step')?.innerText.trim() || '0/0';
+
+        // 核心：通用图片提取与替换逻辑
+        const processImages = (container, prefix) => {
+            if (!container) return '';
+            const clone = container.cloneNode(true);
+            clone.querySelectorAll('img').forEach((img, idx) => {
+                const src = img.getAttribute('src');
+                if (src) {
+                    const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
+                    images.push({ name, url: src });
+                    img.replaceWith(` ![图](./images/${name}) `);
+                }
+            });
+            return clone.innerText.trim();
+        };
+
+        // 1. 提取题目
+        const titleText = processImages(document.querySelector('#item_title, .item-title, .subject-title'), 'tit');
+
+        // 2. 提取选项
+        const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li')).filter(isVisible);
+        const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
+
+        // 3. 提取官方解析
+        let analysisText = '无解析';
+        const analysisSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
+        for (const s of analysisSelectors) {
+            const elements = Array.from(document.querySelectorAll(s));
+            for (let i = elements.length - 1; i >= 0; i--) {
+                const el = elements[i];
+                if (isVisible(el)) {
+                    const t = el.innerText.trim();
+                    if (t.includes('点击查看解析')) continue;
+                    analysisText = processImages(el, 'ans');
+                    analysisText = analysisText.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
+                    break;
                 }
             }
-            
-            // 兜底方案：如果找不到官方解析且开启了评论区提取，则尝试找带有“老师”的评论
-            if (enableDiscussionFallback) {
-                const talks = Array.from(document.querySelectorAll('.tiku-talk-list li'));
-                for (let i = talks.length - 1; i >= 0; i--) {
-                    if (talks[i].querySelector('.terd') || talks[i].innerText.includes('老师')) {
-                        const m = talks[i].querySelector('.huida .mesage')?.innerText.trim();
-                        if (m && m.length > 2) return `[讨论提取] ${m}`;
+            if (analysisText !== '无解析') break;
+        }
+
+        // 4. 讨论区后备
+        if (analysisText === '无解析' && enableDiscussionFallback) {
+            const talks = Array.from(document.querySelectorAll('.tiku-talk-list li'));
+            for (let i = talks.length - 1; i >= 0; i--) {
+                if (talks[i].querySelector('.terd') || talks[i].innerText.includes('老师')) {
+                    const mEl = talks[i].querySelector('.huida .mesage');
+                    if (mEl) {
+                        analysisText = `[讨论提取] ${processImages(mEl, 'talk')}`;
+                        break;
                     }
                 }
             }
-            return '无解析';
-        };
+        }
 
-        // 提取正确答案
+        // 5. 提取答案
         const getAns = () => {
-            // 策略 1: 隐式答案。嗅探列表项的 DOM 状态（被赋予了正确类名或高亮图标）
             const opts = Array.from(document.querySelectorAll('#item_options li, .options li'));
             const rights = opts
                 .filter(li => isVisible(li) && (li.getAttribute('data-isanswer') === '1' || li.classList.contains('correct') || li.classList.contains('right') || !!li.querySelector('.right_icon')))
@@ -290,49 +312,29 @@ async function readQuestionData(page) {
                 .filter(Boolean);
             if (rights.length > 0) return [...new Set(rights)].sort().join('');
 
-            // 策略 2: 显式答案。寻找页面上明确标注“正确答案是 X”的文本区域
             const explicitSelectors = ['.right_answer', '#right_answer', '#answer_analysis', '.answer-yes', '.answer-wrong', '.analysis', '#analysis'];
             for (const selector of explicitSelectors) {
                 const elements = Array.from(document.querySelectorAll(selector));
                 for (let i = elements.length - 1; i >= 0; i--) {
-                    if (!isVisible(elements[i])) continue;
-                    const answer = extractLetters(elements[i].innerText || elements[i].textContent || '');
-                    if (answer) return answer;
+                    if (isVisible(elements[i])) {
+                        const answer = extractLetters(elements[i].innerText);
+                        if (answer) return answer;
+                    }
                 }
             }
             return '未知';
         };
 
-        const step = document.querySelector('#item_step, .item-step')?.innerText.trim() || '0/0';
-        const res = {
+        return {
             type: document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型',
             step,
             itemId: document.querySelector('#item_id')?.innerText.trim() || '',
-            // 将选项直接拼接为 Markdown 友好的多行文本
-            options: Array.from(document.querySelectorAll('#item_options li, .options li')).filter(isVisible).map(li => li.innerText.trim()).join('\n'),
+            title: titleText,
+            options: optionsList,
             answer: getAns(),
-            analysis: getAnalysis(),
-            title: '',
-            images: []
+            analysis: analysisText,
+            images
         };
-
-        // 提取题目文本并处理内嵌图片
-        const titEl = document.querySelector('#item_title, .item-title, .subject-title');
-        if (titEl) {
-            // 使用 cloneNode(true) 进行深拷贝，防止原地修改破坏原网页的 DOM
-            const clone = titEl.cloneNode(true);
-            clone.querySelectorAll('img').forEach((img, idx) => {
-                const src = img.getAttribute('src');
-                if (src) {
-                    const name = `q_${step.replace(/\//g, '_')}_${idx}.png`; // 基于题号生成唯一图片名
-                    res.images.push({ name, url: src });
-                    // 原地将 img 标签替换为 Markdown 图片语法
-                    img.replaceWith(` ![图](./images/${name}) `);
-                }
-            });
-            res.title = clone.innerText.trim();
-        }
-        return res;
     }, ENABLE_DISCUSSION_FALLBACK);
 }
 
@@ -418,24 +420,44 @@ function isLikelyStaleAnalysis(currentData, lastSnapshot) {
 }
 
 /**
- * 图片异步下载
+ * 图片异步下载 (加固版：支持相对路径和基本重试)
  * @param {string} url 图片源地址
  * @param {string} dest 本地存储路径
  */
 async function downloadImage(url, dest) {
     if (!url) return;
     try {
-        const fullUrl = url.startsWith('//') ? `https:${url}` : url;
-        await new Promise((res) => {
-            https.get(fullUrl, (r) => {
-                if (r.statusCode === 200) {
-                    const f = fs.createWriteStream(dest);
-                    r.pipe(f);
-                    f.on('finish', () => { f.close(); res(); });
-                } else res();
-            }).on('error', () => res());
+        let fullUrl = url;
+        if (url.startsWith('//')) {
+            fullUrl = `https:${url}`;
+        } else if (url.startsWith('/')) {
+            fullUrl = `https://www.xs507.com${url}`;
+        } else if (!url.startsWith('http')) {
+            fullUrl = `https://www.xs507.com/${url}`;
+        }
+
+        await new Promise((resolve, reject) => {
+            const request = https.get(fullUrl, (response) => {
+                if (response.statusCode === 200) {
+                    const file = fs.createWriteStream(dest);
+                    response.pipe(file);
+                    file.on('finish', () => {
+                        file.close();
+                        resolve();
+                    });
+                } else {
+                    reject(new Error(`下载失败: ${response.statusCode}`));
+                }
+            });
+            request.on('error', (err) => reject(err));
+            request.setTimeout(10000, () => {
+                request.destroy();
+                reject(new Error('下载超时'));
+            });
         });
-    } catch (e) {}
+    } catch (e) {
+        log(`图片下载异常 [${url}]: ${e.message}`, 'DEBUG');
+    }
 }
 
 /**
@@ -444,7 +466,7 @@ async function downloadImage(url, dest) {
  * =================================================================================
  */
 async function run() {
-    log('正在开启 V17.5 导航加固版...', 'INFO');
+    log('正在开启 V17.6 循环加固版...', 'INFO');
     const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -543,18 +565,19 @@ async function run() {
                 await openChapterAtQuestion(page, chapter.url, skipCount);
                 if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
+                let lastWrittenCurr = skipCount; // 核心：追踪当前循环内真正写入的进度
                 let lastSnapshot = { step: '__INIT__' };
+                let retryCount = 0;
+
                 while (true) {
                     await handlePopup(page);
                     try {
                         await page.waitForSelector('#item_title', { timeout: 20000 });
                     } catch (e) {
-                        log('等待题目超时，清理遮罩并尝试强制刷新页面...', 'WARN');
+                        log('等待题目超时，尝试纠偏...', 'WARN');
                         await handlePopup(page);
-                        // 如果还是不行，可能是跳转没成功，尝试再点击一次“开始”
-                        const retryBtn = await page.$('a.enable.a2, a:has-text("继续"), a:has-text("做题")');
-                        if (retryBtn) await retryBtn.click().catch(() => {});
-                        
+                        const retryBtn = await page.$('a.enable.a2, a:has-text("继续"), a:has-text("做题"), #next_item');
+                        if (retryBtn) await retryBtn.click({ force: true }).catch(() => {});
                         await page.waitForSelector('#item_title', { timeout: 15000 }).catch(err => { throw new Error('无法进入题目页'); });
                     }
                     
@@ -576,25 +599,44 @@ async function run() {
 
                     const [curr, totalNum] = data.step.split('/').map(Number);
                     
-                    // 断点续传：跳过已抓取
+                    // 1. 断点续传：物理跳过（如果当前题号还在已抓取范围内，且还没到最后，就点下一题）
                     if (curr <= skipCount) {
+                        const next = await page.$('.subject-next, #next_item');
+                        if (next && curr < totalNum) {
+                            log(`跳过已抓取题号: ${curr}`, 'DEBUG');
+                            const old = { step: data.step, id: data.itemId };
+                            await next.click({ force: true });
+                            await waitForQuestionChange(page, old.step, old.id);
+                            continue;
+                        } else if (curr <= skipCount && curr === totalNum) {
+                            log(`已到达最后一道题，但仍在跳过范围内，任务结束`, 'INFO');
+                            break;
+                        }
+                    }
+
+                    // 2. 核心防御：防止原地踏步（如果当前题号已经被写入过，则不再重复写入）
+                    if (curr <= lastWrittenCurr) {
+                        log(`检测到重复题号 ${curr}，尝试再次点击下一题...`, 'WARN');
                         const next = await page.$('.subject-next, #next_item');
                         if (next && curr < totalNum) {
                             const old = { step: data.step, id: data.itemId };
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
+                            retryCount++;
+                            if (retryCount > 5) throw new Error(`卡在第 ${curr} 题无法前进，已重试 5 次`);
                             continue;
-                        }
-                        break;
+                        } else break;
                     }
 
+                    retryCount = 0; // 成功前进，重置重试计数
                     if (isLikelyStaleAnalysis(data, lastSnapshot)) data.analysis = '无解析';
 
-                    // 写入
+                    // 写入 Markdown
                     const md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
                     fs.appendFileSync(outputFile, md);
 
                     // 存进度
+                    lastWrittenCurr = curr; // 更新内部进度
                     completionStatus[statusKey] = {
                         id: chapter.id, title: chapter.title,
                         completed: curr, total: totalNum, updatedAt: new Date().toLocaleString()
@@ -603,15 +645,23 @@ async function run() {
                     lastSnapshot = data;
 
                     process.stdout.write(`\r进度: ${data.step} | ID: ${chapter.id} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
-                    await Promise.all(data.images.map(img => downloadImage(img.url, path.join(chapterDir, 'images', img.name))));
+                    
+                    // 异步下载图片
+                    for (const img of data.images) {
+                        await downloadImage(img.url, path.join(chapterDir, 'images', img.name));
+                    }
 
+                    // 前进到下一题
                     if (curr < totalNum) {
                         const next = await page.$('.subject-next, #next_item');
                         if (next) {
                             const old = { step: data.step, id: data.itemId };
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
-                        } else break;
+                        } else {
+                            log('\n未发现下一题按钮，尝试通过答题卡跳转...', 'DEBUG');
+                            break; 
+                        }
                     } else {
                         log(`\n>> [完成] ${chapter.title}`, 'INFO');
                         break;
