@@ -403,16 +403,28 @@ async function readQuestionData(page) {
             if (!container) return '';
             const imgs = Array.from(container.querySelectorAll('img'));
             const originalDisplays = imgs.map(img => img.style.display);
+            
             imgs.forEach((img, idx) => {
                 const src = img.getAttribute('src');
+                const alt = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
+                
                 if (src) {
-                    const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
-                    images.push({ name, url: src });
-                    const span = document.createElement('span');
-                    span.className = 'gemini-img-marker';
-                    span.innerText = `![图](./images/${name})`;
-                    img.parentNode.insertBefore(span, img);
-                    img.style.display = 'none'; 
+                    // 策略：如果图片有 alt 属性且较短，极可能是“文字图片化”，直接用文字替换
+                    if (alt && alt.length > 0 && alt.length < 50) {
+                        const span = document.createElement('span');
+                        span.className = 'gemini-img-marker';
+                        span.innerText = alt; // 直接使用文字
+                        img.parentNode.insertBefore(span, img);
+                        img.style.display = 'none';
+                    } else {
+                        const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
+                        images.push({ name, url: src });
+                        const span = document.createElement('span');
+                        span.className = 'gemini-img-marker';
+                        span.innerText = `![图](./images/${name})`;
+                        img.parentNode.insertBefore(span, img);
+                        img.style.display = 'none'; 
+                    }
                 }
             });
             const text = container.innerText.trim();
@@ -421,21 +433,24 @@ async function readQuestionData(page) {
             return text;
         };
 
-        // 1. 提取题目（包含共享题干的子题目）
-        const titleEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
-        let titleText = processImages(titleEl, 'tit');
+        // 1. 提取题目（区分共享题干与子题目）
+        const stemEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
+        const subTitleEl = document.querySelector('.subject-sub-title, .question-sub-title');
         
-        // 如果是共享题干，题目可能分散在多个地方
-        const subTitle = document.querySelector('.subject-sub-title, .question-sub-title');
-        if (subTitle && isVisible(subTitle)) {
-            titleText += '\n' + processImages(subTitle, 'subtit');
+        let stemText = processImages(stemEl, 'stem');
+        let titleText = processImages(subTitleEl, 'tit');
+        
+        // 如果没有子题目，说明当前内容就是主题目
+        if (!titleText) {
+            titleText = stemText;
+            stemText = '';
         }
 
         // 2. 提取选项
         const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li')).filter(isVisible);
         const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
 
-        // 3. 提取官方解析
+        // 3. 提取官方解析（增加对主观题容器的探测）
         let analysisText = '无解析';
         const analysisSelectors = [
             '.analysis.pd10', 
@@ -445,7 +460,9 @@ async function readQuestionData(page) {
             '.analysis', 
             '#analysis',
             '.tiku-analysis',
-            '.answer-detail'
+            '.answer-detail',
+            '#answer_analysis_detail',
+            '.subject-answer' // 新增主观题常见容器
         ];
         
         for (const s of analysisSelectors) {
@@ -509,6 +526,7 @@ async function readQuestionData(page) {
             type: document.querySelector('#item_type, .item-type, .question-type')?.innerText.trim() || '题型',
             step,
             itemId: document.querySelector('#item_id')?.innerText.trim() || '',
+            stem: stemText,
             title: titleText,
             options: optionsList,
             answer: getAns(),
@@ -924,6 +942,7 @@ async function crawlSubject(page, subject) {
 
                 let lastWrittenCurr = currentProgress; 
                 let lastFingerprint = ''; // 数据指纹，防止重复读取旧内容
+                let lastStem = '';        // 用于共享题干去重
                 let stuckCount = 0;       // 页面卡死计数器
                 let retryCount = 0;       // 重复题号计数器
                 
@@ -999,79 +1018,77 @@ async function crawlSubject(page, subject) {
                         await triggerOfficialAnalysis(page);
                         await randomSleep(2000, 3000);
                         data = await readQuestionData(page);
-                        [curr, totalNum] = data.step.split('/').map(Number);
                     }
                     
                     // 刷新最新状态
-                    [curr, totalNum] = data.step.split('/').map(Number);
+                    const [currFinal, totalNumFinal] = data.step.split('/').map(Number);
                     
-                    
-                    // 1. 断点续传：物理跳过（如果当前题号还在已抓取范围内，且还没到最后，就点下一题）
-                    if (curr <= currentProgress) {
+                    // 1. 断点续传：物理跳过
+                    if (currFinal <= currentProgress) {
                         const next = await page.$('.subject-next, #next_item');
-                        if (next && curr < totalNum) {
-                            log(`跳过已抓取题号: ${curr}`, 'DEBUG');
+                        if (next && currFinal < totalNumFinal) {
+                            log(`跳过已抓取题号: ${currFinal}`, 'DEBUG');
                             const old = { step: data.step, id: data.itemId };
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
                             continue;
-                        } else if (curr <= currentProgress && curr === totalNum) {
+                        } else if (currFinal <= currentProgress && currFinal === totalNumFinal) {
                             log(`已到达最后一道题，但仍在跳过范围内，任务结束`, 'INFO');
-                            completionStatus[statusKey] = { ...savedInfo, isFinished: true, completed: totalNum, total: totalNum };
+                            completionStatus[statusKey] = { ...savedInfo, isFinished: true, completed: totalNumFinal, total: totalNumFinal };
                             saveStatus();
                             break;
                         }
                     }
 
-                    // 2. 核心防御：防止原地踏步（如果当前题号已经被写入过，则不再重复写入）
-                    if (curr <= lastWrittenCurr) {
+                    // 2. 核心防御：防止原地踏步
+                    if (currFinal <= lastWrittenCurr) {
                         retryCount++;
-                        log(`检测到重复题号 ${curr} (重试: ${retryCount}/5)，尝试补救跳转...`, 'WARN');
-                        
-                        // 强制清理遮罩并点击下一题
+                        log(`检测到重复题号 ${currFinal} (重试: ${retryCount}/5)，尝试补救跳转...`, 'WARN');
                         await handlePopup(page);
                         const next = await page.$('.subject-next, #next_item');
-                        if (next && curr < totalNum) {
+                        if (next && currFinal < totalNumFinal) {
                             const old = { step: data.step, id: data.itemId };
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
-                            
-                            if (retryCount > 4) {
-                                log('补救失败，尝试刷新页面或通过答题卡强行跳转...', 'WARN');
-                                await page.reload().catch(() => {});
-                                await randomSleep(5000, 8000);
-                                await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到当前题
-                                await randomSleep(3000, 5000);
-                            }
                             continue;
                         } else break;
                     }
 
-                    retryCount = 0; // 成功前进，重置重试计数
+                    retryCount = 0; 
 
-                    // 3. 核心保护：严禁写入非正数（排除 SPA 渲染未就绪状态）
-                    if (curr <= 0) {
-                        log(`检测到数据未就绪 (题号: ${curr})，等待刷新...`, 'DEBUG');
+                    if (currFinal <= 0) {
+                        log(`检测到数据未就绪 (题号: ${currFinal})，等待刷新...`, 'DEBUG');
                         await randomSleep(2000, 3000);
                         continue;
                     }
 
-                    // 写入 Markdown (根据题型优化排版)
-                    let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
+                    // --- 核心排版逻辑：共享题干与题目合并 ---
+                    let md = `## 第 ${currFinal} 题 [${data.type}]\n\n`;
                     
-                    // 问答题、简答题等主观题通常没有选项和简短答案，直接显示解析/参考答案
-                    if (!['问答题', '简答题', '案例分析题', '论述题'].includes(data.type)) {
-                        md += `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n`;
+                    // 如果有共享题干，且与上一题不同，则写入题干
+                    if (data.stem && data.stem !== lastStem) {
+                        md += `**【背景】**\n${data.stem}\n\n`;
+                        lastStem = data.stem;
                     }
                     
-                    md += `**解析：**\n${data.analysis}\n\n---\n\n`;
+                    md += `**题目：** ${data.title}\n\n`;
+                    
+                    // 问答题、简答题等主观题处理
+                    if (!['问答题', '简答题', '案例分析题', '论述题'].includes(data.type)) {
+                        md += `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n`;
+                        md += `**解析：**\n${data.analysis}\n\n---\n\n`;
+                    } else {
+                        // 主观题：答案直接显示在解析位
+                        md += `**参考答案/解析：**\n${data.analysis}\n\n---\n\n`;
+                    }
+                    
                     fs.appendFileSync(outputFile, md);
 
                     // --- 状态持久化与进度存档 ---
-                    lastWrittenCurr = curr; // 更新内部进度
+                    lastWrittenCurr = currFinal; 
                     completionStatus[statusKey] = {
                         id: chapter.id, title: chapter.title,
-                        completed: curr, total: totalNum, updatedAt: new Date().toLocaleString()
+                        completed: currFinal, total: totalNumFinal, updatedAt: new Date().toLocaleString()
                     };
                     saveStatus();
 
@@ -1083,21 +1100,21 @@ async function crawlSubject(page, subject) {
                     }
 
                     // 前进到下一题
-                    if (curr < totalNum) {
+                    if (currFinal < totalNumFinal) {
                         const next = await page.$('.subject-next, #next_item');
                         if (next) {
                             const old = { step: data.step, id: data.itemId };
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
                         } else {
-                            log('\n未发现下一题按钮，尝试通过答题卡跳转...', 'DEBUG');
+                            log('\n未发现下一题按钮，任务结束。', 'DEBUG');
                             break; 
                         }
                     } else {
                         log(`\n>> [完成] ${chapter.title}`, 'INFO');
                         completionStatus[statusKey] = {
                             id: chapter.id, title: chapter.title,
-                            completed: curr, total: totalNum, 
+                            completed: currFinal, total: totalNumFinal, 
                             isFinished: true,
                             updatedAt: new Date().toLocaleString()
                         };
