@@ -568,14 +568,28 @@ async function crawlSubject(page, subject) {
     
     // 导航到题库列表页
     await page.goto(TIKU_LIST_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await handlePopup(page);
+
+    // 关键：检查是否存在“切换其他题库”按钮，如果有则点击它以展开列表
+    const switchLink = await page.$('a.change:has-text("切换"), a.change[href*="change.html"]');
+    if (switchLink) {
+        log('检测到“切换其他题库”链接，正在点击...', 'INFO');
+        await switchLink.click({ force: true }).catch(() => {});
+        await randomSleep(2000, 3000);
+        await handlePopup(page);
+    }
     
     // 等待页面 JS 渲染完成：显式等待包含 radio 列表的容器出现
     let radioLoaded = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            // 先等容器出现
-            await page.waitForSelector('.my-right, .list-change', { timeout: 10000 });
-            // 再等 radio 出现
+            // 如果点击链接后 URL 变了或者内容刷新了，再次检查
+            if (attempt > 1) {
+                const retrySwitch = await page.$('a.change:has-text("切换")');
+                if (retrySwitch) await retrySwitch.click({ force: true }).catch(() => {});
+            }
+
+            // 等待 radio 出现
             await page.waitForSelector('input[name="change_id"]', { timeout: 8000 });
             radioLoaded = true;
             break;
