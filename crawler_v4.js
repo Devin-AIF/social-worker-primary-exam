@@ -120,31 +120,38 @@ async function randomSleep(min, max) {
  */
 async function handlePopup(page) {
     await page.evaluate(() => {
-        // 1. 移除所有已知遮罩层，防止指针事件被吞
-        const blockers = [
-            '#video_analysis_ratelimit_overlay', // 视频解析频率限制遮罩
-            '.layui-layer-shade',                // 常见的 LayUI 遮罩层
-            '.layerSaveSuccess',                 // 保存成功的提示框
-            '#popup_box',
-            '#popup_box_bg'
-        ];
-        blockers.forEach(s => {
+        // 1. 移除真正的透明遮罩（它们会挡住点击）
+        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg'];
+        shades.forEach(s => {
+            document.querySelectorAll(s).forEach(el => el.remove());
+        });
+
+        // 2. 对于可能是内容载体的容器（如 popup_box），不要删除或隐藏，只将其置于底层，防止它挡住下一题按钮
+        const containers = ['#popup_box'];
+        containers.forEach(s => {
             document.querySelectorAll(s).forEach(el => {
-                // 终极安全措施：绝不物理删除任何元素，只做隐藏和置底处理
-                el.style.visibility = 'hidden';
-                el.style.pointerEvents = 'none';
-                el.style.zIndex = '-9999';
-                el.style.display = 'none';
+                // 如果它没有“解析”内容，才考虑置底
+                if (!el.innerText.includes('解析') && !el.id.includes('analysis')) {
+                    el.style.zIndex = '-1';
+                    el.style.pointerEvents = 'none';
+                } else {
+                    // 如果有解析，确保它是可见的
+                    el.style.zIndex = '9999';
+                    el.style.display = 'block';
+                    el.style.visibility = 'visible';
+                    el.style.pointerEvents = 'auto';
+                }
             });
         });
 
-        // 2. 重置可能的反爬 JS 变量
+        // 3. 重置可能的反爬 JS 变量
         window.is_ratelimit = false;
         if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
 
-        // 3. 强行显示被隐藏的解析区域
+        // 4. 强制显示所有解析相关的隐藏元素
         document.querySelectorAll('.hide, .hidden, [style*="display: none"]').forEach(el => {
-            if (el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer')) {
+            const isContent = el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer') || el.innerText.includes('解析');
+            if (isContent) {
                 el.classList.remove('hide', 'hidden');
                 el.style.display = 'block';
                 el.style.visibility = 'visible';
@@ -461,6 +468,15 @@ function isLikelyStaleAnalysis(currentData, lastSnapshot) {
 async function downloadImage(url, dest) {
     if (!url) return;
     try {
+        // 支持 Base64 数据协议
+        if (url.startsWith('data:image')) {
+            const base64Data = url.split(',')[1];
+            if (base64Data) {
+                fs.writeFileSync(dest, base64Data, 'base64');
+                return;
+            }
+        }
+
         let fullUrl = url;
         if (url.startsWith('//')) {
             fullUrl = `https:${url}`;
@@ -503,7 +519,7 @@ async function downloadImage(url, dest) {
  * =================================================================================
  */
 async function run() {
-    log('正在开启 V17.6 循环加固版...', 'INFO');
+    log('正在开启 V18.1 终极深度加固版...', 'INFO');
     const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -665,11 +681,10 @@ async function run() {
                             await waitForQuestionChange(page, old.step, old.id);
                             
                             if (retryCount > 4) {
-                                log('补救失败，尝试通过答题卡强行跳转下一题', 'WARN');
-                                await page.evaluate((idx) => {
-                                    const cards = document.querySelectorAll('#tiku_sheet_card li');
-                                    if (cards[idx]) cards[idx].click();
-                                }, curr); // 注意：curr 是题号，索引是 curr
+                                log('补救失败，尝试刷新页面或通过答题卡强行跳转...', 'WARN');
+                                await page.reload().catch(() => {});
+                                await randomSleep(5000, 8000);
+                                await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到当前题
                                 await randomSleep(3000, 5000);
                             }
                             continue;
