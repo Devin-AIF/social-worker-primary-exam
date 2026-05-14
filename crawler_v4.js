@@ -244,26 +244,35 @@ async function ensureReciteMode(page) {
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
-        // 1. 检查解析是否已经显示
-        const analysisArea = document.querySelector('.analysis.pd10, #answer_analysis .analysis, .analysis, #answer_analysis, #analysis');
-        const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
-        
-        if (isVisible(analysisArea) && analysisArea.innerText.length > 10 && !analysisArea.innerText.includes('点击查看解析')) {
-            return; 
-        }
-
-        const clickIfVisible = (selector) => {
-            const elements = Array.from(document.querySelectorAll(selector));
-            for (const el of elements) {
-                if (isVisible(el)) { el.click(); return true; }
+        // 1. 检查解析是否已经完全展开且包含内容
+        const getVisibleAnalysis = () => {
+            const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail'];
+            for (const s of sel) {
+                const el = document.querySelector(s);
+                const isVisible = !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
+                if (isVisible && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
             }
-            return false;
+            return null;
         };
+        
+        if (getVisibleAnalysis()) return; 
 
         // 2. 触发解析按钮
-        if (!clickIfVisible('.click_analysis')) {
-            if (!clickIfVisible('[data-type="analysis"]')) {
-                clickIfVisible('.analysis-btn, .show-analysis, .jiexi, .answer-analysis');
+        const clickSelectors = [
+            '.click_analysis', 
+            '[data-type="analysis"]', 
+            '.analysis-btn', 
+            '.show-analysis', 
+            '.jiexi', 
+            '.answer-analysis',
+            '.btn-analysis'
+        ];
+        
+        for (const s of clickSelectors) {
+            const els = Array.from(document.querySelectorAll(s));
+            for (const el of els) {
+                const isVisible = !!(el && (el.offsetParent || el.getClientRects().length));
+                if (isVisible) { el.click(); break; }
             }
         }
 
@@ -271,13 +280,20 @@ async function triggerOfficialAnalysis(page) {
         const tabs = Array.from(document.querySelectorAll('a, button, span, div'))
             .filter(el => {
                 const t = (el.innerText || '').trim();
-                return (t === '查看解析' || t === '解析' || t === '参考解析') && isVisible(el);
+                const isVisible = !!(el && (el.offsetParent || el.getClientRects().length));
+                return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析') && isVisible;
             });
         tabs.forEach(el => el.click());
     });
 
-    // 动态等待解析内容出现 (最多等待 3 秒)
-    await page.waitForTimeout(1000);
+    // 给 Ajax 留出加载时间，如果还没出来就多等一会
+    await page.waitForTimeout(1500);
+    
+    // 增加一个动态等待，确保内容加载
+    await page.waitForFunction(() => {
+        const el = document.querySelector('.analysis.pd10, #answer_analysis, .analysis, #analysis, .tiku-analysis');
+        return el && el.innerText.trim().length > 10 && !el.innerText.includes('点击查看解析');
+    }, { timeout: 3000 }).catch(() => {});
 }
 
 /**
@@ -324,13 +340,13 @@ async function readQuestionData(page) {
         };
 
         const extractLetters = (text) => {
-            const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/);
+            const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/) || (text || '').match(/答案[^A-F]*([A-F]+)/);
             return match ? match[1].replace(/[^A-F]/g, '') : '';
         };
 
         const images = [];
         const getStep = () => {
-            const sel = ['#item_step', '.item-step', '.question-step', '.subject-step', '.step'];
+            const sel = ['#item_step', '.item-step', '.question-step', '.subject-step', '.step', '.step-num'];
             for (const s of sel) {
                 const el = document.querySelector(s);
                 if (el && el.innerText.includes('/')) return el.innerText.trim();
@@ -351,7 +367,7 @@ async function readQuestionData(page) {
                     images.push({ name, url: src });
                     const span = document.createElement('span');
                     span.className = 'gemini-img-marker';
-                    span.innerText = `![图](./images/${name})`; // 修正路径
+                    span.innerText = `![图](./images/${name})`;
                     img.parentNode.insertBefore(span, img);
                     img.style.display = 'none'; 
                 }
@@ -362,34 +378,60 @@ async function readQuestionData(page) {
             return text;
         };
 
-        const titleText = processImages(document.querySelector('#item_title, .item-title, .subject-title'), 'tit');
-        const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li')).filter(isVisible);
+        // 1. 提取题目（包含共享题干的子题目）
+        const titleEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
+        let titleText = processImages(titleEl, 'tit');
+        
+        // 如果是共享题干，题目可能分散在多个地方
+        const subTitle = document.querySelector('.subject-sub-title, .question-sub-title');
+        if (subTitle && isVisible(subTitle)) {
+            titleText += '\n' + processImages(subTitle, 'subtit');
+        }
+
+        // 2. 提取选项
+        const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li')).filter(isVisible);
         const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
 
+        // 3. 提取官方解析
         let analysisText = '无解析';
-        const analysisSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
+        const analysisSelectors = [
+            '.analysis.pd10', 
+            '#answer_analysis .analysis', 
+            '.answer-yes .analysis', 
+            '.answer-wrong .analysis', 
+            '.analysis', 
+            '#analysis',
+            '.tiku-analysis',
+            '.answer-detail'
+        ];
+        
         for (const s of analysisSelectors) {
             const elements = Array.from(document.querySelectorAll(s));
             for (let i = elements.length - 1; i >= 0; i--) {
                 const el = elements[i];
                 if (isVisible(el)) {
                     const t = el.innerText.trim();
-                    if (t.includes('点击查看解析')) continue;
+                    if (t.includes('点击查看解析') || t.length < 5) continue;
+                    
                     let rawAnalysis = processImages(el, 'ans');
-                    // 修正正则，更激进地清除前导文字
-                    let replaced = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
-                    analysisText = replaced || rawAnalysis;
+                    // 更智能的清洗逻辑
+                    let clean = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/i, '')
+                                         .replace(/^[\s\S]*?答案解析[：:\n]*\s*/i, '')
+                                         .replace(/^[\s\S]*?解析[：:\n]*\s*/i, '')
+                                         .trim();
+                    analysisText = clean || rawAnalysis;
                     if (analysisText.length > 5 && analysisText !== '无解析') break;
                 }
             }
             if (analysisText !== '无解析') break;
         }
 
+        // 4. 讨论区后备
         if (analysisText === '无解析' && enableDiscussionFallback) {
-            const talks = Array.from(document.querySelectorAll('.tiku-talk-list li'));
+            const talks = Array.from(document.querySelectorAll('.tiku-talk-list li, .question-talk-list li'));
             for (let i = talks.length - 1; i >= 0; i--) {
                 if (talks[i].querySelector('.terd') || talks[i].innerText.includes('老师')) {
-                    const mEl = talks[i].querySelector('.huida .mesage');
+                    const mEl = talks[i].querySelector('.huida .mesage, .message');
                     if (mEl) {
                         analysisText = `[讨论提取] ${processImages(mEl, 'talk')}`;
                         break;
@@ -398,15 +440,16 @@ async function readQuestionData(page) {
             }
         }
 
+        // 5. 提取答案
         const getAns = () => {
-            const opts = Array.from(document.querySelectorAll('#item_options li, .options li'));
+            const opts = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li'));
             const rights = opts
-                .filter(li => isVisible(li) && (li.getAttribute('data-isanswer') === '1' || li.classList.contains('correct') || li.classList.contains('right') || !!li.querySelector('.right_icon')))
+                .filter(li => isVisible(li) && (li.getAttribute('data-isanswer') === '1' || li.classList.contains('correct') || li.classList.contains('right') || !!li.querySelector('.right_icon') || li.querySelector('.correct_icon')))
                 .map(li => li.getAttribute('data-optname') || li.innerText.trim().charAt(0))
                 .filter(Boolean);
             if (rights.length > 0) return [...new Set(rights)].sort().join('');
 
-            const explicitSelectors = ['.right_answer', '#right_answer', '#answer_analysis', '.answer-yes', '.answer-wrong', '.analysis', '#analysis'];
+            const explicitSelectors = ['.right_answer', '#right_answer', '#answer_analysis', '.answer-yes', '.answer-wrong', '.analysis', '#analysis', '.correct-answer'];
             for (const selector of explicitSelectors) {
                 const elements = Array.from(document.querySelectorAll(selector));
                 for (let i = elements.length - 1; i >= 0; i--) {
@@ -420,7 +463,7 @@ async function readQuestionData(page) {
         };
 
         return {
-            type: document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型',
+            type: document.querySelector('#item_type, .item-type, .question-type')?.innerText.trim() || '题型',
             step,
             itemId: document.querySelector('#item_id')?.innerText.trim() || '',
             title: titleText,
@@ -803,9 +846,18 @@ async function crawlSubject(page, subject) {
             let savedInfo = completionStatus[statusKey] || {};
             if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
             
-            // 2. 核心优化：直接基于“已完成”状态或数量对比进行跳过，不再进入页面
-            const totalGoal = chapter.total || savedInfo.total || 0;
-            const currentProgress = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
+            // 2. 核心优化：进度恢复策略
+            // 优先遵循 JSON 状态文件，MD 文件仅作为辅助参考（当 JSON 为 0 但文件已存在时，可能需要清理文件或跳过）
+            const jsonProgress = Number(savedInfo.completed) || 0;
+            const mdProgress = getCompletedCount(outputFile);
+            
+            let currentProgress = jsonProgress;
+            
+            // 如果 JSON 记录落后于 MD 文件（通常发生在上次运行中途崩溃），则取 MD 文件的值以防重复抓取
+            if (mdProgress > jsonProgress) {
+                log(`检测到本地 MD 文件已有 ${mdProgress} 题，将从该位置恢复。`, 'WARN');
+                currentProgress = mdProgress;
+            }
 
             if (savedInfo.isFinished || (totalGoal > 0 && currentProgress >= totalGoal)) {
                 log(`[跳过] 该章节已全部抓取完毕: ${chapter.title} (${currentProgress}/${totalGoal})`, 'INFO');
@@ -819,7 +871,10 @@ async function crawlSubject(page, subject) {
             try {
                 // 开启抓取前先确保页面处于背题模式或准备就绪
                 await openChapterAtQuestion(page, chapter.url, currentProgress);
-                if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
+                // 如果从 0 开始，或者文件不存在，则初始化文件（覆盖旧内容）
+                if (!fs.existsSync(outputFile) || currentProgress === 0) {
+                    fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
+                }
 
                 let lastWrittenCurr = currentProgress; 
                 let retryCount = 0;
