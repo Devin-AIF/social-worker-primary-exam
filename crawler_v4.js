@@ -566,32 +566,30 @@ async function crawlSubject(page, subject) {
     const TIKU_LIST_URL = 'https://www.xs507.com/Tiku/Tikulist/index.html';
     log(`\n正在切换题库到: ${subject.name} (product_id=${subject.productId})`, 'INFO');
     
-    // 导航到题库列表页，等待完全加载
-    await page.goto(TIKU_LIST_URL, { waitUntil: 'networkidle' }).catch(() => {});
-    await randomSleep(2000, 3000);
-    await handlePopup(page);
-
-    // 调试：打印实际到达的 URL
-    log(`题库列表页实际 URL: ${page.url()}`, 'DEBUG');
-
-    // 等待 radio 列表加载完成（最多等 15 秒）
+    // 导航到题库列表页
+    await page.goto(TIKU_LIST_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    
+    // 等待页面 JS 渲染完成：显式等待包含 radio 列表的容器出现
     let radioLoaded = false;
-    try {
-        await page.waitForSelector('.list-change input.change-radio', { timeout: 15000 });
-        radioLoaded = true;
-    } catch (e) {
-        // 可能页面结构不同，尝试更宽泛的选择器
+    for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            await page.waitForSelector('input[name="change_id"]', { timeout: 5000 });
+            // 先等容器出现
+            await page.waitForSelector('.my-right, .list-change', { timeout: 10000 });
+            // 再等 radio 出现
+            await page.waitForSelector('input[name="change_id"]', { timeout: 8000 });
             radioLoaded = true;
-        } catch (e2) {
-            log('radio 列表未在页面上出现，尝试截取页面内容调试...', 'WARN');
-            const bodySnippet = await page.evaluate(() => {
-                return document.body?.innerHTML?.substring(0, 500) || '(empty body)';
-            });
-            log(`页面内容片段: ${bodySnippet}`, 'DEBUG');
+            break;
+        } catch (e) {
+            log(`第 ${attempt} 次等待 radio 列表失败，URL: ${page.url()}`, 'WARN');
+            if (attempt < 3) {
+                // 重试：刷新页面
+                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+                await randomSleep(3000, 5000);
+            }
         }
     }
+    
+    await handlePopup(page);
 
     // 用 Playwright 原生 click 点击对应的 label（确保触发 jQuery change 事件）
     const radioSelector = `input[name="change_id"][value="${subject.productId}"]`;
