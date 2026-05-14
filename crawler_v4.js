@@ -767,47 +767,70 @@ async function crawlSubject(page, subject) {
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
-            // 综合判断断点续传进度（取 JSON 记录和本地 MD 文件已存题数的最大值）
-            let savedInfo = completionStatus[statusKey] || {};
-            if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
-            const skipCount = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
-            const totalGoal = chapter.total || savedInfo.total || 0;
-
+            // 综合判断断点续传进度
+            const fileCount = getCompletedCount(outputFile);
+            let skipCount = 0;
+            
+            // 策略：如果本地 Markdown 文件已经有内容，则以文件题数和 JSON 记录的较大值为准
+            // 如果文件不存在或为空，则强制从 0 开始（即第一题），这允许用户通过删除文件来重抓
+            if (fileCount > 0) {
+                let savedInfo = completionStatus[statusKey] || {};
+                if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
+                skipCount = Math.max(Number(savedInfo.completed) || 0, fileCount);
+            } else {
+                log(`[初始化] 目标文件为空，将从第一题开始抓取`, 'DEBUG');
+                skipCount = 0;
+            }
+            
+            const totalGoal = chapter.total || 0;
             if (totalGoal > 0 && skipCount >= totalGoal) {
                 log(`[跳过] 已完成: ${chapter.title} (${skipCount}/${totalGoal})`, 'INFO');
                 continue;
             }
 
-            log(`>> 准备抓取: ${chapter.title} (ID: ${chapter.id}, 进度: ${skipCount})`, 'INFO');
+            log(`>> 准备抓取: ${chapter.title} (ID: ${chapter.id}, 预期起始进度: ${skipCount})`, 'INFO');
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
 
             try {
+                // 跳转到指定位置
                 await openChapterAtQuestion(page, chapter.url, skipCount);
                 if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
-                let lastWrittenCurr = skipCount; // 核心：追踪当前循环内真正写入的进度
+                let lastWrittenCurr = skipCount; 
                 let retryCount = 0;
 
                 while (true) {
                     await handlePopup(page);
                     try {
-                        await page.waitForSelector('#item_title', { timeout: 20000 });
+                        await page.waitForSelector('#item_title', { timeout: 15000 });
                     } catch (e) {
                         log('等待题目超时，尝试纠偏...', 'WARN');
                         await handlePopup(page);
                         const retryBtn = await page.$('a.enable.a2, a:has-text("继续"), a:has-text("做题"), #next_item');
                         if (retryBtn) await retryBtn.click({ force: true }).catch(() => {});
-                        await page.waitForSelector('#item_title', { timeout: 15000 }).catch(err => { throw new Error('无法进入题目页'); });
+                        await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法进入题目页'); });
                     }
                     
+                    // 核心：触发解析
                     await triggerOfficialAnalysis(page);
-                    await randomSleep(2000, 3500);
+                    await randomSleep(2500, 4000); // 给 Ajax 加载留出时间
                     
                     let data = await readQuestionData(page);
+                    const [curr, totalNum] = data.step.split('/').map(Number);
+
+                    // 自动校准：如果页面上的实际题号 curr 比我们记录的 skipCount 还小，说明跳转没生效，应以页面为准
+                    if (lastWrittenCurr === skipCount && curr < skipCount + 1) {
+                         log(`警告：页面题号(${curr})落后于预期进度(${skipCount + 1})，正在同步...`, 'WARN');
+                         // 这里不强制跳过，而是从页面实际位置开始抓
+                    }
                     
-                    // 防护：如果没抓到答案，这可能是部分多选题的机制限制，尝试点击任意一个选项触发 Ajax 返回答案
-                    if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
+                    // 防护：如果没抓到答案，尝试再次触发
+                    if (data.analysis === '无解析') {
+                        await triggerOfficialAnalysis(page);
+                        await randomSleep(3000, 5000);
+                        data = await readQuestionData(page);
+                    }
                         await page.evaluate(() => {
                             const opt = document.querySelector('#item_options li, .options li');
                             if (opt) opt.click();
