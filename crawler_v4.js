@@ -771,25 +771,25 @@ async function crawlSubject(page, subject) {
             let savedInfo = completionStatus[statusKey] || {};
             if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
             
-            // 取本地文件已存题数和 JSON 记录的最大值，确保绝对不漏
-            const skipCount = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
-            
-            const totalGoal = chapter.total || 0;
-            if (totalGoal > 0 && skipCount >= totalGoal) {
-                log(`[跳过] 已完成: ${chapter.title} (${skipCount}/${totalGoal})`, 'INFO');
+            // 2. 核心优化：直接基于“已完成”状态或数量对比进行跳过，不再进入页面
+            const totalGoal = chapter.total || savedInfo.total || 0;
+            const currentProgress = Math.max(Number(savedInfo.completed) || 0, getCompletedCount(outputFile));
+
+            if (savedInfo.isFinished || (totalGoal > 0 && currentProgress >= totalGoal)) {
+                log(`[跳过] 该章节已全部抓取完毕: ${chapter.title} (${currentProgress}/${totalGoal})`, 'INFO');
                 continue;
             }
 
-            log(`>> 准备抓取: ${chapter.title} (ID: ${chapter.id}, 断点进度: ${skipCount})`, 'INFO');
+            log(`>> 准备抓取: ${chapter.title} (ID: ${chapter.id}, 当前断点: ${currentProgress}/${totalGoal || '?'})`, 'INFO');
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
 
             try {
                 // 开启抓取前先确保页面处于背题模式或准备就绪
-                await openChapterAtQuestion(page, chapter.url, skipCount);
+                await openChapterAtQuestion(page, chapter.url, currentProgress);
                 if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
-                let lastWrittenCurr = skipCount; 
+                let lastWrittenCurr = currentProgress; 
                 let retryCount = 0;
 
                 while (true) {
@@ -833,7 +833,7 @@ async function crawlSubject(page, subject) {
                     
                     
                     // 1. 断点续传：物理跳过（如果当前题号还在已抓取范围内，且还没到最后，就点下一题）
-                    if (curr <= skipCount) {
+                    if (curr <= currentProgress) {
                         const next = await page.$('.subject-next, #next_item');
                         if (next && curr < totalNum) {
                             log(`跳过已抓取题号: ${curr}`, 'DEBUG');
@@ -841,8 +841,10 @@ async function crawlSubject(page, subject) {
                             await next.click({ force: true });
                             await waitForQuestionChange(page, old.step, old.id);
                             continue;
-                        } else if (curr <= skipCount && curr === totalNum) {
+                        } else if (curr <= currentProgress && curr === totalNum) {
                             log(`已到达最后一道题，但仍在跳过范围内，任务结束`, 'INFO');
+                            completionStatus[statusKey] = { ...savedInfo, isFinished: true, completed: totalNum, total: totalNum };
+                            saveStatus();
                             break;
                         }
                     }
@@ -900,18 +902,15 @@ async function crawlSubject(page, subject) {
                     }
 
                     // 前进到下一题
-                    if (curr < totalNum) {
-                        const next = await page.$('.subject-next, #next_item');
-                        if (next) {
-                            const old = { step: data.step, id: data.itemId };
-                            await next.click({ force: true });
-                            await waitForQuestionChange(page, old.step, old.id);
-                        } else {
-                            log('\n未发现下一题按钮，尝试通过答题卡跳转...', 'DEBUG');
-                            break; 
-                        }
                     } else {
                         log(`\n>> [完成] ${chapter.title}`, 'INFO');
+                        completionStatus[statusKey] = {
+                            id: chapter.id, title: chapter.title,
+                            completed: curr, total: totalNum, 
+                            isFinished: true,
+                            updatedAt: new Date().toLocaleString()
+                        };
+                        saveStatus();
                         break;
                     }
                 }
