@@ -369,10 +369,10 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
 
     // 第三步：跳转到指定题号
     if (questionIndex > 0) {
+        log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
         await page.waitForSelector('#tiku_sheet_card li', { timeout: 8000 }).catch(() => {});
         await page.evaluate((index) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li');
-            // 如果要跳转的题号超过了总数，就点最后一题（用于快速触发完成逻辑）
             const target = Math.min(index, cards.length - 1);
             if (target >= 0 && cards[target]) cards[target].click();
         }, questionIndex);
@@ -556,14 +556,12 @@ async function run() {
 
             const skipCount = Math.max(
                 Number(completionStatus[statusKey]) || 0,
-                Number(completionStatus[oldStatusKey]) || 0,
                 getCompletedCount(outputFile)
             );
             
-            // 改进：彻底跳过逻辑
+            // 改进：彻底跳过逻辑（严格匹配 ID）
             if ((chapter.totalCount > 0 && skipCount >= chapter.totalCount) || (chapter.totalCount === 0 && skipCount > 0 && getCompletedCount(outputFile) > 0)) {
-                log(`[跳过] 已完成章节: ${chapter.title} (进度: ${skipCount}/${chapter.totalCount || '?'})`, 'INFO');
-                // 确保状态同步
+                log(`[跳过] 已完成章节: ${chapter.title} (ID: ${chapter.id}, 进度: ${skipCount}/${chapter.totalCount || '?'})`, 'INFO');
                 if (!completionStatus[statusKey] || completionStatus[statusKey] < skipCount) {
                     completionStatus[statusKey] = skipCount;
                     saveStatus();
@@ -571,7 +569,7 @@ async function run() {
                 continue;
             }
 
-            log(`>> 正在检查: ${chapter.title} (已抓取: ${skipCount})`, 'INFO');
+            log(`>> 正在检查: ${chapter.title} (ID: ${chapter.id}, 已抓取: ${skipCount})`, 'INFO');
             try {
                 await openChapterAtQuestion(page, chapter.url, skipCount);
             } catch (e) { log(`尝试开启背题模式失败: ${e.message}`, 'DEBUG'); }
