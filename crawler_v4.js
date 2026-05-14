@@ -166,67 +166,75 @@ async function randomSleep(min, max) {
 }
 
 /**
- * 全量恢复：处理遮罩和弹窗拦截 (核心反风控逻辑)
+ * 全量恢复：深度清理
  * 定期清理页面上的遮罩层，防止 Playwright 的 click 动作被拦截。
  * @param {import('playwright').Page} page Playwright 页面实例
  */
 async function handlePopup(page) {
     await page.evaluate(() => {
         // 1. 移除真正的透明遮罩（它们会挡住点击）
-        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#async function triggerOfficialAnalysis(page) {
-    // 1. 判断是否已经显示了解析内容
-    const hasAnalysis = await page.evaluate(() => {
-        const getVisibleText = (selector) => {
-            const el = document.querySelector(selector);
-            if (!el || el.offsetParent === null) return '';
-            return el.innerText.trim();
-        };
-        // 扩展选择器：适配更多题型
-        const selectors = [
-            '.analysis.pd10', '#answer_analysis .analysis', 
-            '.analysis', '#analysis', '.answer-detail', 
-            '.solution', '.analysis-box', '.click_analysis'
-        ];
-        for (const s of selectors) {
-            const text = getVisibleText(s);
-            if (text.length > 5 && !text.includes('点击查看解析')) return true;
-        }
-        return false;
-    });
-
-    if (hasAnalysis) return;
-
-    // 2. 尝试点击所有可能的解析按钮
-    await page.evaluate(() => {
-        // 广撒网点击
-        const selectors = [
-            '.click_analysis', '[data-type="analysis"]', 
-            '.analysis-btn', '.show-analysis', '#show_analysis',
-            '.btns-analysis', '.ans-btn'
-        ];
-        for (const s of selectors) {
-            const els = document.querySelectorAll(s);
-            els.forEach(el => { if (el.offsetParent !== null) el.click(); });
-        }
-        // 文本匹配点击
-        const btns = Array.from(document.querySelectorAll('a, button, span, div, li')).filter(el => {
-            const t = (el.innerText || '').trim();
-            return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '查看答案') && el.offsetParent !== null;
+        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg'];
+        shades.forEach(s => {
+            document.querySelectorAll(s).forEach(el => el.remove());
         });
-        btns.forEach(b => b.click());
+
+        // 2. 移除干扰答题区域或按钮的固定浮窗
+        const floatingMasks = ['.fix-bottom', '.ad-box'];
+        floatingMasks.forEach(s => {
+            document.querySelectorAll(s).forEach(el => el.remove());
+        });
+
+        // 3. 重置可能的反爬 JS 变量
+        window.is_ratelimit = false;
+        if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
     });
-}lse;
+}
+
+/**
+ * 全量恢复：安全点击封装
+ */
+async function safeClick(page, selector, waitAfter = 0) {
+    const element = await page.$(selector);
+    if (!element) return false;
 
     await handlePopup(page);
     try {
         await element.click({ force: true, timeout: 5000 });
     } catch (e) {
-        // 后备方案：跳过 Playwright 鼠标模拟，直接执行 JS DOM click
         await element.evaluate(el => el.click()).catch(() => {});
     }
     if (waitAfter > 0) await page.waitForTimeout(waitAfter);
     await handlePopup(page);
     return true;
+}
+
+/**
+ * 核心逻辑：确保进入“背题模式”
+ */
+async function ensureReciteMode(page) {
+    const isAlreadyRecite = await page.evaluate(() => {
+        const text = document.body.innerText;
+        return text.includes('退出背题') || text.includes('背题模式已开启') || !!document.querySelector('.recite-mode-active');
+    });
+
+    if (isAlreadyRecite) return true;
+
+    log('正在开启背题模式...', 'INFO');
+    const clicked = await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
+            .find(el => {
+                const t = (el.innerText || '').trim();
+                return (t === '背题模式' || t === '背题') && el.offsetParent !== null;
+            });
+        if (btn) { btn.click(); return true; }
+        return false;
+    });
+
+    if (clicked) {
+        await randomSleep(3000, 5000);
+        await handlePopup(page);
+    }
+    return clicked;
 }
 
 /**
@@ -488,19 +496,8 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         log('未发现显式的启动按钮，可能已直接进入答题页或按钮不匹配', 'DEBUG');
     }
 
-    // 2. 尝试激活“背题模式” (该模式下通常会直接显示正确答案，极大降低抓取难度)
-    const activated = await page.evaluate(() => {
-        const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
-            .find(el => (el.innerText || '').trim() === '背题模式' && el.offsetParent !== null);
-        if (btn) { btn.click(); return true; }
-        return false;
-    });
-
-    if (activated) {
-        log('背题模式已激活', 'INFO');
-        await randomSleep(3000, 5000);
-        await handlePopup(page);
-    }
+    // 2. 确保进入背题模式 (核心修复：强制开启以保证解析可见)
+    await ensureReciteMode(page);
 
     // 3. 断点续传跳转：双重保障机制
     if (questionIndex > 0) {
