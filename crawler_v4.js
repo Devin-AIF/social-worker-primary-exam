@@ -304,17 +304,35 @@ async function run() {
         await randomSleep(3000, 5000);
 
         const chapters = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a'))
-                .filter(a => (a.innerText.includes('模式') || a.innerText.includes('做题')) && a.href.includes('product_id'))
-                .map(a => {
-                    const p = a.closest('li, tr, .item');
-                    const title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
-                    const url = a.href;
-                    const id = 'paper-' + (url.match(/paper_id[\/=](\d+)/)?.[1] || url.match(/product_id[\/=](\d+)/)?.[1] || '');
-                    const m = p?.innerText.match(/共\s*(\d+)\s*题/) || p?.innerText.match(/\/(\d+)/);
-                    return { title, url, id, total: m ? parseInt(m[1], 10) : 0 };
+            const container = document.querySelector('.question-conten-list, .product-box, #main-tiku-box') || document.body;
+            return Array.from(container.querySelectorAll('a'))
+                .filter(a => {
+                    const t = a.innerText.trim();
+                    const isAction = (t.includes('模式') || t.includes('做题') || t.includes('开始')) && a.href.includes('product_id');
+                    const isLink = a.closest('.title') && (a.href.includes('paper_id') || a.href.includes('product_id'));
+                    return isAction || isLink;
                 })
-                .filter((c, i, l) => l.findIndex(item => item.url === c.url) === i);
+                .map(a => {
+                    const p = a.closest('li, tr, .item, .big');
+                    let title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
+                    const url = a.href;
+
+                    // 提取唯一 ID (优先 paper_id, 其次 know_id, 最后 product_id)
+                    let id = '';
+                    const mPaper = url.match(/paper_id[\/=](\d+)/);
+                    const mKnow = url.match(/know_id[\/=](\d+)/);
+                    const mProd = url.match(/product_id[\/=](\d+)/);
+
+                    if (mPaper) id = 'paper-' + mPaper[1];
+                    else if (mKnow) id = 'know-' + mKnow[1];
+                    else if (mProd) id = 'prod-' + mProd[1];
+                    else id = 'unknown-' + Math.random().toString(36).slice(2, 7);
+
+                    const mCount = p?.innerText.match(/共\s*(\d+)\s*题/) || p?.innerText.match(/\/(\d+)/);
+                    return { title, url, id, total: mCount ? parseInt(mCount[1], 10) : 0 };
+                })
+                // 根据 ID 去重，确保每个卷子只抓一次
+                .filter((c, i, l) => l.findIndex(item => item.id === c.id) === i);
         });
 
         for (const chapter of chapters) {
