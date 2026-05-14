@@ -812,39 +812,31 @@ async function crawlSubject(page, subject) {
                         await page.waitForSelector('#item_title', { timeout: 10000 }).catch(err => { throw new Error('无法进入题目页'); });
                     }
                     
-                    // 核心：触发解析
+                    // 核心：触发解析并等待
                     await triggerOfficialAnalysis(page);
-                    await randomSleep(2500, 4000); // 给 Ajax 加载留出时间
+                    await randomSleep(3500, 5500); 
                     
                     let data = await readQuestionData(page);
                     let [curr, totalNum] = data.step.split('/').map(Number);
 
-                    // 自动校准：如果页面上的实际题号 curr 比我们记录的 skipCount 还小，说明跳转没生效，应以页面为准
-                    if (lastWrittenCurr === skipCount && curr < skipCount + 1) {
-                         log(`警告：页面题号(${curr})落后于预期进度(${skipCount + 1})，正在同步...`, 'WARN');
-                         // 这里不强制跳过，而是从页面实际位置开始抓
-                    }
-                    
-                    // 防护：如果没抓到答案，尝试再次触发
-                    if (data.analysis === '无解析') {
-                        await triggerOfficialAnalysis(page);
-                        await randomSleep(3000, 5000);
-                        data = await readQuestionData(page);
-                        [curr, totalNum] = data.step.split('/').map(Number);
-                    }
-                    // 防护：如果没抓到答案，这可能是部分多选题的机制限制，尝试点击任意一个选项触发 Ajax 返回答案
-                    if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
+                    // 防护：如果没抓到解析且不是主观题，尝试在练习模式下补救
+                    if (data.analysis === '无解析' && !['问答题', '案例分析题', '简答题'].includes(data.type)) {
+                        log('检测到解析缺失，尝试安全触发...', 'DEBUG');
                         await page.evaluate(() => {
                             const opt = document.querySelector('#item_options li, .options li');
-                            if (opt) opt.click();
+                            // 关键：只有在未选中的情况下才点，避免取消选中
+                            if (opt && !opt.classList.contains('selected') && !opt.classList.contains('active')) {
+                                opt.click();
+                            }
                         });
                         await randomSleep(2000, 3000);
                         await triggerOfficialAnalysis(page);
+                        await randomSleep(2000, 3000);
                         data = await readQuestionData(page);
+                        [curr, totalNum] = data.step.split('/').map(Number);
                     }
-
-
-                    // 刷新题号数据
+                    
+                    // 刷新最新状态
                     [curr, totalNum] = data.step.split('/').map(Number);
                     
                     
