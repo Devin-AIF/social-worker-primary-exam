@@ -860,8 +860,15 @@ async function crawlSubject(page, subject) {
 
                     retryCount = 0; // 成功前进，重置重试计数
 
-                    // 写入 Markdown
-                    const md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
+                    // 写入 Markdown (根据题型优化排版)
+                    let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
+                    
+                    // 问答题、简答题等主观题通常没有选项和简短答案，直接显示解析/参考答案
+                    if (!['问答题', '简答题', '案例分析题', '论述题'].includes(data.type)) {
+                        md += `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n`;
+                    }
+                    
+                    md += `**解析：**\n${data.analysis}\n\n---\n\n`;
                     fs.appendFileSync(outputFile, md);
 
                     // 存进度
