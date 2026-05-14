@@ -128,13 +128,25 @@ async function handlePopup(page) {
             '#popup_box',
             '#popup_box_bg'
         ];
-        blockers.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
+        blockers.forEach(s => {
+            document.querySelectorAll(s).forEach(el => {
+                // 加固：如果遮罩层内部包含“解析”字样或相关 ID，则不移除，防止误删内容
+                const text = el.innerText || '';
+                const isLikelyContent = el.id?.includes('analysis') || el.className?.includes('analysis') || text.includes('解析');
+                if (!isLikelyContent) el.remove();
+                else {
+                    // 如果是内容但被遮挡，尝试强制显示
+                    el.style.zIndex = '1'; 
+                    el.style.display = 'block';
+                }
+            });
+        });
 
-        // 2. 重置可能的反爬 JS 变量，破除前端限流
+        // 2. 重置可能的反爬 JS 变量
         window.is_ratelimit = false;
         if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
 
-        // 3. 强行显示被隐藏的解析区域 (针对某些题目只通过 CSS 隐藏解析的情况)
+        // 3. 强行显示被隐藏的解析区域
         document.querySelectorAll('.hide, .hidden, [style*="display: none"]').forEach(el => {
             if (el.id?.includes('analysis') || el.className?.includes('analysis') || el.className?.includes('answer')) {
                 el.classList.remove('hide', 'hidden');
@@ -178,6 +190,14 @@ async function safeClick(page, selector, waitAfter = 0) {
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
+        // 先检查解析是否已经显示，如果已经显示，就不重复点击了，防止“反向操作”关闭了解析
+        const analysisArea = document.querySelector('.analysis, #answer_analysis, #analysis');
+        const isAlreadyVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length));
+        
+        if (isAlreadyVisible(analysisArea) && analysisArea.innerText.length > 10) {
+            return; // 已经有解析了，跳过点击
+        }
+
         const clickIfVisible = (selector) => {
             const elements = Array.from(document.querySelectorAll(selector));
             for (const el of elements) {
@@ -262,7 +282,8 @@ async function readQuestionData(page) {
                     img.replaceWith(`![图](images/${name})`);
                 }
             });
-            return clone.innerText.trim();
+            // 修复：克隆节点未挂载时 innerText 为空，必须使用 textContent
+            return clone.textContent.trim();
         };
 
         // 1. 提取题目
