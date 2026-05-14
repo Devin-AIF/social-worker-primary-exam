@@ -918,8 +918,9 @@ async function crawlSubject(page, subject) {
                     let data = await readQuestionData(page);
                     const [curr, totalNum] = data.step.split('/').map(Number);
                     
-                    // --- 核心修复：顺序校验与强制跳转 ---
-                    // 如果当前页面题号（curr）不等于我们期望的题号（lastWrittenCurr + 1），说明发生了跳题或串题
+                    // --- 核心安全机制：顺序校验与强制纠偏 ---
+                    // 目的是防止网站因为网络波动导致的自动跳转或题号错位。
+                    // 如果当前页面题号（curr）不等于期望的题号（lastWrittenCurr + 1），则通过答题卡强制拉回。
                     if (curr !== lastWrittenCurr + 1 && curr <= totalNum && curr > 0) {
                         log(`检测到题号不连续 (当前:${curr}, 期望:${lastWrittenCurr + 1})，正在通过答题卡强制纠偏...`, 'WARN');
                         await page.evaluate((target) => {
@@ -938,11 +939,11 @@ async function crawlSubject(page, subject) {
                         }
                     }
 
-                    // 如果还没抓到答案，尝试点击选项触发
+                    // 辅助补救：如果解析仍然缺失，模拟点击第一个选项以触发服务端返回解析
                     if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
                         await page.evaluate(() => {
                             const opt = document.querySelector('#item_options li, .options li, .question-options li');
-                            // 关键：只有在未选中的情况下才点，避免取消选中
+                            // 关键：只有在未选中的情况下才点，避免“反向操作”取消选中
                             if (opt && !opt.classList.contains('selected') && !opt.classList.contains('active')) {
                                 opt.click();
                             }
@@ -1019,7 +1020,7 @@ async function crawlSubject(page, subject) {
                     md += `**解析：**\n${data.analysis}\n\n---\n\n`;
                     fs.appendFileSync(outputFile, md);
 
-                    // 存进度
+                    // --- 状态持久化与进度存档 ---
                     lastWrittenCurr = curr; // 更新内部进度
                     completionStatus[statusKey] = {
                         id: chapter.id, title: chapter.title,
