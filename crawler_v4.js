@@ -477,10 +477,11 @@ async function waitForQuestionChange(page, oldStep, oldItemId) {
  * 全量恢复：深度提取数据 (爬虫的“眼睛”)
  * 在浏览器上下文中执行的脚本，直接读取 DOM。
  * @param {import('playwright').Page} page
+ * @param {string} oldAnalysisFingerprint 上一题的解析指纹，用于识别陈旧数据
  * @returns {Promise<Object>} 提取出的题目对象
  */
-async function readQuestionData(page) {
-    return page.evaluate((enableDiscussionFallback) => {
+async function readQuestionData(page, oldAnalysisFingerprint = '') {
+    return page.evaluate(({ enableDiscussionFallback, oldAnalysisFingerprint }) => {
         const isVisible = (el) => {
             if (!el) return false;
             const style = window.getComputedStyle(el);
@@ -607,6 +608,13 @@ async function readQuestionData(page) {
                         let raw = el.innerText.trim();
                         if (raw.includes('点击查看解析') || raw.length < 5) continue;
 
+                        // 核心校验：指纹比对逻辑 (防止读取上一题残留解析)
+                        const currentFingerprint = raw.replace(/\s/g, '').substring(0, 100);
+                        if (oldAnalysisFingerprint && currentFingerprint === oldAnalysisFingerprint) {
+                            telemetry.push({ selector: s, skipReason: 'stale_content', sample: currentFingerprint.substring(0, 20) });
+                            continue;
+                        }
+
                         // 核心校验：如果提取出的内容与题目内容高度重叠且没有显著新增内容，则认为是误抓了题目容器
                         const rawFingerprint = raw.replace(/\s/g, '');
                         if (titleFingerprint && rawFingerprint.includes(titleFingerprint)) {
@@ -661,8 +669,13 @@ async function readQuestionData(page) {
                 if (isTeacher || talks.length === 1) { // 如果只有一条评论且解析缺失，大概率是答案
                     const mEl = talks[i].querySelector('.huida .mesage, .message, .mesage');
                     if (mEl) {
-                        analysisText = `[讨论提取] ${processImages(mEl, 'talk')}`;
-                        break;
+                        const talkText = processImages(mEl, 'talk');
+                        // 讨论内容也要防重复
+                        const talkFinger = talkText.replace(/\s/g, '').substring(0, 100);
+                        if (!oldAnalysisFingerprint || talkFinger !== oldAnalysisFingerprint) {
+                            analysisText = `[讨论提取] ${talkText}`;
+                            break;
+                        }
                     }
                 }
             }
@@ -1145,7 +1158,7 @@ async function crawlSubject(page, subject) {
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                     await randomSleep(2000, 3500);
                     
-                    let data = await readQuestionData(page);
+                    let data = await readQuestionData(page, lastAnalysisFingerprint);
                     
                     // --- 核心安全机制：数据指纹校验 (防止 SPA 异步延迟导致的重复读取) ---
                     if (data.fingerprint === lastFingerprint && lastWrittenCurr > 0) {
@@ -1183,7 +1196,7 @@ async function crawlSubject(page, subject) {
                             }, 500);
                         }, lastWrittenCurr + 1);
                         await randomSleep(3000, 5000);
-                        data = await readQuestionData(page);
+                        data = await readQuestionData(page, lastAnalysisFingerprint);
                         const [newCurr] = data.step.split('/').map(Number);
                         if (newCurr !== lastWrittenCurr + 1) {
                             log(`纠偏失败，当前仍为 ${newCurr}，尝试直接继续抓取以防死循环。`, 'DEBUG');
@@ -1205,7 +1218,7 @@ async function crawlSubject(page, subject) {
                         await page.waitForTimeout(1500);
                         await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                         await randomSleep(2000, 3000);
-                        data = await readQuestionData(page);
+                        data = await readQuestionData(page, lastAnalysisFingerprint);
                     }
                     
                     // 刷新最新状态
