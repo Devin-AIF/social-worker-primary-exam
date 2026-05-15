@@ -212,8 +212,14 @@ async function handlePopup(page) {
         });
 
         // 3. 重置可能的反爬 JS 变量
-        window.is_ratelimit = false;
-        if (window.video_analysis_ratelimit_timer) clearInterval(window.video_analysis_ratelimit_timer);
+        try {
+            window.is_ratelimit = false;
+            if (window.video_analysis_ratelimit_timer) {
+                clearInterval(window.video_analysis_ratelimit_timer);
+            }
+        } catch (e) {
+            // 忽略由于网页端变量为常量导致的赋值错误
+        }
     });
 }
 
