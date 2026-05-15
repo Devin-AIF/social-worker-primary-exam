@@ -608,7 +608,8 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
             .find(el => {
                 const t = (el.innerText || '').trim();
-                return (t === '背题模式' || t === '显示答案') && !!(el.offsetParent || el.getClientRects().length);
+                const isVisible = !!(el.offsetParent || el.getClientRects().length);
+                return (t === '背题模式' || t === '背题' || t === '显示答案') && isVisible;
             });
         if (btn) { btn.click(); return true; }
         return false;

@@ -78,6 +78,24 @@ async function run() {
             await page.waitForTimeout(5000);
         }
 
+        log('尝试开启背题模式...');
+        const reciteBtn = await page.evaluate(() => {
+            const btn = Array.from(document.querySelectorAll('a, button, span, div, li'))
+                .find(el => {
+                    const t = (el.innerText || '').trim();
+                    const isVisible = !!(el.offsetParent || el.getClientRects().length);
+                    return (t === '背题模式' || t === '背题' || t === '显示答案') && isVisible;
+                });
+            if (btn) { btn.click(); return true; }
+            return false;
+        });
+        if (reciteBtn) {
+            log('背题模式已开启');
+            await page.waitForTimeout(3000);
+        } else {
+            log('未找到背题模式按钮');
+        }
+
         log('当前 URL: ' + page.url());
         
         // Trigger analysis
