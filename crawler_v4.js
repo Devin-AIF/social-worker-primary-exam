@@ -507,6 +507,10 @@ async function readQuestionData(page) {
                     let clean = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/i, '')
                                          .replace(/^[\s\S]*?答案解析[：:\n]*\s*/i, '')
                                          .replace(/^[\s\S]*?解析[：:\n]*\s*/i, '')
+                                         .replace(/点击查看解析/g, '')
+                                         .replace(/我要纠错/g, '')
+                                         .replace(/从错题本移除/g, '')
+                                         .replace(/提交/g, '')
                                          .trim();
                     analysisText = clean || rawAnalysis;
                     if (analysisText.length > 5 && analysisText !== '无解析') break;
