@@ -1,89 +1,62 @@
-function updateLogs() {
-    chrome.storage.local.get(['lastLogs'], (result) => {
-        const container = document.getElementById('logContainer');
+let isMonitoring = false;
+
+function updateEvents() {
+    chrome.storage.local.get(['capturedEvents'], (result) => {
+        const container = document.getElementById('eventContainer');
         container.innerHTML = '';
-        if (result.lastLogs) {
-            result.lastLogs.reverse().forEach(log => {
+        if (result.capturedEvents) {
+            result.capturedEvents.slice().reverse().forEach(event => {
                 const div = document.createElement('div');
-                div.className = `log-entry ${log.type}`;
-                div.textContent = `[${log.timestamp}] [${log.type}] ${log.msg}`;
+                div.className = `log-entry ${event.type}`;
+                div.textContent = `[${event.timestamp}] ${event.detail || event.msg || ''}`;
                 container.appendChild(div);
             });
         }
     });
 }
 
-document.getElementById('captureBtn').addEventListener('click', async () => {
+document.getElementById('monitorBtn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (!tab.url.includes('xs507.com')) {
-        document.getElementById('status').textContent = '错误：请在 xs507.com 页面使用此插件';
-        document.getElementById('status').style.color = 'red';
-        return;
+    const btn = document.getElementById('monitorBtn');
+    const indicator = document.getElementById('statusIndicator');
+
+    if (!isMonitoring) {
+        chrome.tabs.sendMessage(tab.id, { action: "startMonitoring" }, (response) => {
+            if (response?.status === "started") {
+                isMonitoring = true;
+                btn.textContent = "停止监控";
+                btn.classList.add('active');
+                indicator.classList.add('on');
+            }
+        });
+    } else {
+        chrome.tabs.sendMessage(tab.id, { action: "stopMonitoring" }, (response) => {
+            if (response?.status === "stopped") {
+                isMonitoring = false;
+                btn.textContent = "开始实时监控";
+                btn.classList.remove('active');
+                indicator.classList.remove('on');
+            }
+        });
     }
-
-    chrome.tabs.sendMessage(tab.id, { action: "captureData" }, (response) => {
-        if (chrome.runtime.lastError) {
-            document.getElementById('status').textContent = '错误：无法连接到页面，请刷新页面后再试';
-            document.getElementById('status').style.color = 'red';
-            return;
-        }
-
-        if (response) {
-            const report = {
-                pageData: response.data,
-                logs: response.logs
-            };
-            
-            const reportStr = JSON.stringify(report, null, 2);
-            navigator.clipboard.writeText(reportStr).then(() => {
-                document.getElementById('status').textContent = '报告已复制到剪贴板！';
-                document.getElementById('status').style.color = 'green';
-            }).catch(err => {
-                document.getElementById('status').textContent = '复制失败，请查看控制台';
-                console.error(err);
-            });
-        }
-    });
 });
 
 document.getElementById('exportBtn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
-    if (!tab.url.includes('xs507.com')) {
-        document.getElementById('status').textContent = '错误：请在 xs507.com 页面使用此插件';
-        document.getElementById('status').style.color = 'red';
-        return;
-    }
-
     chrome.tabs.sendMessage(tab.id, { action: "captureData" }, (response) => {
-        if (chrome.runtime.lastError) {
-            document.getElementById('status').textContent = '错误：无法连接到页面';
-            document.getElementById('status').style.color = 'red';
-            return;
-        }
-
         if (response) {
-            const report = {
-                pageData: response.data,
-                logs: response.logs
-            };
-            
-            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             a.href = url;
-            a.download = `scraper-debug-report-${timestamp}.json`;
+            a.download = `scraper-monitor-report-${timestamp}.json`;
             a.click();
             URL.revokeObjectURL(url);
-            
-            document.getElementById('status').textContent = 'JSON 文件已导出！';
-            document.getElementById('status').style.color = 'green';
         }
     });
 });
 
-// 每秒刷新一次日志
-setInterval(updateLogs, 1000);
-updateLogs();
+setInterval(updateEvents, 1000);
+updateEvents();
