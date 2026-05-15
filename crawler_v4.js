@@ -303,7 +303,7 @@ async function triggerOfficialAnalysis(page) {
             
             // 1. 检查解析是否已经完全展开且包含真实内容
             const getVisibleAnalysis = () => {
-                const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.subject-answer', '.answer-yes', '.answer-wrong', '.answer-content', '.solution'];
+                const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
                 for (const s of sel) {
                     const el = document.querySelector(s);
                     if (isVisible(el) && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
@@ -352,8 +352,12 @@ async function triggerOfficialAnalysis(page) {
     
     // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
     const success = await page.waitForFunction(() => {
-        const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail, .subject-answer, .answer-yes, .answer-wrong, .answer-content, .solution');
-        return el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析');
+        const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
+        for (const s of sel) {
+            const el = document.querySelector(s);
+            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) return true;
+        }
+        return false;
     }, { timeout: 4000 }).catch(() => false);
 
     if (!success) {
@@ -422,6 +426,17 @@ async function readQuestionData(page) {
         };
         const step = getStep();
 
+        // 辅助：获取纯文本指纹用于比对
+        const getFingerprint = (el) => {
+            if (!el) return '';
+            return el.innerText.replace(/\s/g, '');
+        };
+
+        // 1. 提取题目（区分共享题干与子题目）
+        const stemEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
+        const subTitleEl = document.querySelector('.subject-sub-title, .question-sub-title');
+        const titleFingerprint = getFingerprint(stemEl) + getFingerprint(subTitleEl);
+
         // 核心：原地提取逻辑（不克隆，确保 innerText 格式完美）
         const processImages = (container, prefix) => {
             if (!container) return '';
@@ -433,11 +448,10 @@ async function readQuestionData(page) {
                 const alt = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
                 
                 if (src) {
-                    // 策略：如果图片有 alt 属性且较短，极可能是“文字图片化”，直接用文字替换
                     if (alt && alt.length > 0 && alt.length < 50) {
                         const span = document.createElement('span');
                         span.className = 'gemini-img-marker';
-                        span.innerText = alt; // 直接使用文字
+                        span.innerText = alt; 
                         img.parentNode.insertBefore(span, img);
                         img.style.display = 'none';
                     } else {
@@ -457,14 +471,8 @@ async function readQuestionData(page) {
             return text;
         };
 
-        // 1. 提取题目（区分共享题干与子题目）
-        const stemEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
-        const subTitleEl = document.querySelector('.subject-sub-title, .question-sub-title');
-        
         let stemText = processImages(stemEl, 'stem');
         let titleText = processImages(subTitleEl, 'tit');
-        
-        // 如果没有子题目，说明当前内容就是主题目
         if (!titleText) {
             titleText = stemText;
             stemText = '';
@@ -474,8 +482,9 @@ async function readQuestionData(page) {
         const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li')).filter(isVisible);
         const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
 
-        // 3. 提取官方解析（增加对主观题容器的探测）
+        // 3. 提取官方解析
         let analysisText = '无解析';
+        // 优先级排序：先找最具体的解析容器
         const analysisSelectors = [
             '.analysis.pd10', 
             '#answer_analysis .analysis', 
@@ -486,38 +495,53 @@ async function readQuestionData(page) {
             '.tiku-analysis',
             '.answer-detail',
             '#answer_analysis_detail',
+            '.jiexi-content',
+            '.solution'
+        ];
+        
+        // 兜底容器（可能包含题目，需慎重校验）
+        const fallbackSelectors = [
             '.subject-answer',
             '.answer-content',
             '.question-answer',
-            '#answer',
-            '.solution',
-            '.jiexi-content'
+            '#answer'
         ];
-        
-        for (const s of analysisSelectors) {
-            const elements = Array.from(document.querySelectorAll(s));
-            for (let i = elements.length - 1; i >= 0; i--) {
-                const el = elements[i];
-                if (isVisible(el)) {
-                    const t = el.innerText.trim();
-                    if (t.includes('点击查看解析') || t.length < 5) continue;
-                    
-                    let rawAnalysis = processImages(el, 'ans');
-                    // 更智能的清洗逻辑
-                    let clean = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/i, '')
-                                         .replace(/^[\s\S]*?答案解析[：:\n]*\s*/i, '')
-                                         .replace(/^[\s\S]*?解析[：:\n]*\s*/i, '')
-                                         .replace(/点击查看解析/g, '')
-                                         .replace(/我要纠错/g, '')
-                                         .replace(/从错题本移除/g, '')
-                                         .replace(/提交/g, '')
-                                         .trim();
-                    analysisText = clean || rawAnalysis;
-                    if (analysisText.length > 5 && analysisText !== '无解析') break;
+
+        const trySelect = (selectors, checkVisibility = true) => {
+            for (const s of selectors) {
+                const elements = Array.from(document.querySelectorAll(s));
+                for (let i = elements.length - 1; i >= 0; i--) {
+                    const el = elements[i];
+                    // 在背题模式下，即使元素被 CSS 隐藏（isVisible=false），只要它有实质内容也应该读取
+                    if (!checkVisibility || isVisible(el) || (el.innerText.trim().length > 20 && !el.innerText.includes('点击查看解析'))) {
+                        let raw = el.innerText.trim();
+                        if (raw.includes('点击查看解析') || raw.length < 5) continue;
+
+                        // 核心校验：如果提取出的内容与题目内容高度重叠且没有显著新增内容，则认为是误抓了题目容器
+                        const rawFingerprint = raw.replace(/\s/g, '');
+                        if (titleFingerprint && rawFingerprint.includes(titleFingerprint)) {
+                            // 如果长度差距不大，极大概率只是题目文本的副本
+                            if (rawFingerprint.length < titleFingerprint.length + 50) continue;
+                        }
+
+                        let rawAnalysis = processImages(el, 'ans');
+                        let clean = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/i, '')
+                                             .replace(/^[\s\S]*?答案解析[：:\n]*\s*/i, '')
+                                             .replace(/^[\s\S]*?参考答案[：:\n]*\s*/i, '')
+                                             .replace(/^[\s\S]*?解析[：:\n]*\s*/i, '')
+                                             .replace(/点击查看解析/g, '')
+                                             .replace(/我要纠错/g, '')
+                                             .replace(/从错题本移除/g, '')
+                                             .replace(/提交/g, '')
+                                             .trim();
+                        if (clean.length > 5) return clean;
+                    }
                 }
             }
-            if (analysisText !== '无解析') break;
-        }
+            return null;
+        };
+
+        analysisText = trySelect(analysisSelectors, false) || trySelect(fallbackSelectors, true) || '无解析';
 
         // 4. 讨论区后备
         if (analysisText === '无解析' && enableDiscussionFallback) {
