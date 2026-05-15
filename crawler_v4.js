@@ -303,7 +303,7 @@ async function triggerOfficialAnalysis(page) {
             
             // 1. 检查解析是否已经完全展开且包含真实内容
             const getVisibleAnalysis = () => {
-                const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail'];
+                const sel = ['.analysis.pd10', '#answer_analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.subject-answer', '.answer-yes', '.answer-wrong', '.answer-content', '.solution'];
                 for (const s of sel) {
                     const el = document.querySelector(s);
                     if (isVisible(el) && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
@@ -324,7 +324,9 @@ async function triggerOfficialAnalysis(page) {
                 '.btn-analysis',
                 '.show-answer',
                 '#show_answer_btn',
-                '.view-solution'
+                '.view-solution',
+                '.btn-answer',
+                '.view-answer'
             ];
             
             for (const s of clickSelectors) {
@@ -338,7 +340,7 @@ async function triggerOfficialAnalysis(page) {
             const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
                 .filter(el => {
                     const t = (el.innerText || '').trim();
-                    return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案') && isVisible(el);
+                    return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案' || t === '显示答案') && isVisible(el);
                 });
             textButtons.forEach(el => el.click());
         });
@@ -346,11 +348,11 @@ async function triggerOfficialAnalysis(page) {
 
     await trigger();
     // 为 Ajax 异步加载预留缓冲时间
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
     
     // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
     const success = await page.waitForFunction(() => {
-        const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail, .subject-answer, .answer-yes, .answer-wrong');
+        const el = document.querySelector('.analysis, #answer_analysis, .tiku-analysis, .answer-detail, #answer_analysis_detail, .subject-answer, .answer-yes, .answer-wrong, .answer-content, .solution');
         return el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析');
     }, { timeout: 4000 }).catch(() => false);
 
@@ -484,7 +486,12 @@ async function readQuestionData(page) {
             '.tiku-analysis',
             '.answer-detail',
             '#answer_analysis_detail',
-            '.subject-answer' // 新增主观题常见容器
+            '.subject-answer',
+            '.answer-content',
+            '.question-answer',
+            '#answer',
+            '.solution',
+            '.jiexi-content'
         ];
         
         for (const s of analysisSelectors) {
