@@ -643,16 +643,13 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                         }
 
                         let rawAnalysis = processImages(el, 'ans');
-                        // 使用 textContent 兜底 innerText (防止 display:none 导致的问题)
-                        if (!rawAnalysis || rawAnalysis.length < 10) {
-                            rawAnalysis = el.textContent.trim();
+                        // 优先保证获取到文本，无论是否可见
+                        if (!rawAnalysis || rawAnalysis.length < 5) {
+                            rawAnalysis = (el.innerText || el.textContent || '').trim();
                         }
 
-                        let clean = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/i, '')
-                                             .replace(/^[\s\S]*?答案解析[：:\n]*\s*/i, '')
-                                             .replace(/^[\s\S]*?参考答案[：:\n]*\s*/i, '')
-                                             .replace(/^[\s\S]*?本题解析[：:\n]*\s*/i, '')
-                                             .replace(/^[\s\S]*?解析[：:\n]*\s*/i, '')
+                        // 改进的清洗正则：仅匹配开头的特定标识，不伤及正文
+                        let clean = rawAnalysis.replace(/^(参考解析|答案解析|参考答案|本题解析|解析)[：:\n\s]*/i, '')
                                              .replace(/点击查看解析/g, '')
                                              .replace(/我要纠错/g, '')
                                              .replace(/从错题本移除/g, '')
@@ -665,8 +662,8 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                                              .trim();
                         
                         // 判定是否为纯占位符或 UI 垃圾
-                        if (!clean || clean === '-' || clean.length < 5 || /^[ \t\n\r\-\.]+$/.test(clean)) {
-                            telemetry.push({ selector: s, skipReason: 'too_short_or_garbage', length: clean?.length });
+                        if (!clean || clean === '-' || clean.length < 2 || /^[ \t\n\r\-\.]+$/.test(clean)) {
+                            telemetry.push({ selector: s, skipReason: 'too_short_or_garbage', length: clean?.length, text: clean?.substring(0, 10) });
                             continue;
                         }
 
