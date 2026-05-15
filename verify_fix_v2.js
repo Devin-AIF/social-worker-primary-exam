@@ -37,11 +37,24 @@ async function run() {
         const chapter = await page.$('a:has-text("第一章　社会工作服务通用模式")');
         if (!chapter) {
             // Try searching in the page
-            await page.goto('https://www.xs507.com/Tiku/Product/index/product_id/317/subject_id/1/type/3.html').catch(() => {});
-            await page.waitForTimeout(3000);
+            log('正在进入产品索引页...');
+            await page.goto('https://www.xs507.com/Tiku/Product/index/product_id/317/type/3.html').catch(() => {});
+            await page.waitForTimeout(5000);
+            
+            const categoryLink = await page.$('a:has-text("章节练习")');
+            if (categoryLink) {
+                log('点击章节练习分类...');
+                await categoryLink.click();
+                await page.waitForTimeout(5000);
+            }
+            await page.screenshot({ path: 'product_list_v2.png' });
         }
         
-        const targetChapter = await page.$('a:has-text("第一章　社会工作服务通用模式")');
+        const targetChapter = await page.$('a:has-text("第一章")');
+        if (!targetChapter) {
+            const allLinks = await page.evaluate(() => Array.from(document.querySelectorAll('a')).map(a => a.innerText.trim()).filter(t => t.length > 0));
+            log('页面链接列表: ' + allLinks.join(' | '));
+        }
         if (targetChapter) {
             log('进入章节');
             await targetChapter.click();
