@@ -1225,7 +1225,9 @@ async function crawlSubject(page, subject) {
                     MONITOR.stats.totalCaptured++;
                     if (data.analysis === '无解析') {
                         MONITOR.stats.noAnalysisCount++;
-                        MONITOR.reportIssue('NO_ANALYSIS', `题号 ${currFinal} 缺失解析`);
+                        let detail = `题号 ${currFinal} 缺失解析`;
+                        if (data.telemetry) detail += ` | DOM状态诊断: ${data.telemetry}`;
+                        MONITOR.reportIssue('NO_ANALYSIS', detail);
                     }
 
                     // 每抓取 20 题运行一次健康检查
