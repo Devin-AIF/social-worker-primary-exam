@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Scraper Debugger Helper",
+  "version": "1.0",
+  "description": "辅助定位抓取脚本问题的调试工具",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.xs507.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.xs507.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
