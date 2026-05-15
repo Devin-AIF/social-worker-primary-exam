@@ -265,8 +265,8 @@ async function randomSleep(min, max) {
 }
 
 /**
- * 全量恢复：深度清理
- * 定期清理页面上的遮罩层，防止 Playwright 的 click 动作被拦截。
+ * 全量恢复：深度清理与弹窗识别
+ * 定期清理页面上的遮罩层，但保留并识别包含解析内容的弹窗。
  * @param {import('playwright').Page} page Playwright 页面实例
  */
 async function handlePopup(page) {
@@ -284,10 +284,29 @@ async function handlePopup(page) {
             document.querySelectorAll(s).forEach(el => el.remove());
         });
 
-        // 2. 移除干扰答题区域或按钮的固定浮窗
-        const floatingMasks = ['.fix-bottom', '.ad-box', '.layui-layer', '.popup-box'];
-        floatingMasks.forEach(s => {
-            document.querySelectorAll(s).forEach(el => el.remove());
+        // 2. 核心：内容识别弹窗处理 (Layui 框架下解析通常在 layer 里)
+        const containers = ['.layui-layer', '.popup-box', '#popup_box', '.layer-anim'];
+        containers.forEach(s => {
+            document.querySelectorAll(s).forEach(el => {
+                const text = (el.innerText || el.textContent || '').trim();
+                const isAnalysis = text.includes('解析') || text.includes('答案') || text.includes('参考答案') || el.id.includes('analysis');
+                
+                if (isAnalysis) {
+                    // 如果是解析，确保它完全可见且可点击
+                    el.style.zIndex = '99999';
+                    el.style.display = 'block';
+                    el.style.visibility = 'visible';
+                    el.style.pointerEvents = 'auto';
+                    el.style.opacity = '1';
+                } else if (text.includes('纠错') || text.includes('试题讨论') || text.length < 5) {
+                    // 仅删除明确的垃圾弹窗或空弹窗
+                    el.remove();
+                } else {
+                    // 疑似广告或无关弹窗，移出点击流
+                    el.style.zIndex = '-1';
+                    el.style.pointerEvents = 'none';
+                }
+            });
         });
 
         // 3. 重置可能的反爬 JS 变量
@@ -296,8 +315,9 @@ async function handlePopup(page) {
             if (window.video_analysis_ratelimit_timer) {
                 clearInterval(window.video_analysis_ratelimit_timer);
             }
-            // 强制重置网站可能的冷却倒计时
+            // 尝试破解频率限制
             if (typeof reset_ratelimit === 'function') reset_ratelimit();
+            if (typeof unlockAnalysis === 'function') unlockAnalysis();
         } catch (e) {}
     });
 }
