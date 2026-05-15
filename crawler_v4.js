@@ -359,24 +359,25 @@ async function ensureReciteMode(page) {
  * 深度解析触发引擎
  * 针对 SPA 应用，很多内容是异步 Ajax 加载的。
  * 本函数通过模拟用户点击“查看解析”或“显示答案”等操作来触发数据加载。
+ * @param {import('playwright').Page} page
+ * @param {string} oldAnalysisFingerprint 上一题的解析指纹，用于确保内容已更新
  */
-async function triggerOfficialAnalysis(page) {
+async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     const trigger = async () => {
         await page.evaluate(() => {
             const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
             
             // 1. 检查解析是否已经完全展开且包含真实内容
             const getVisibleAnalysis = () => {
-                const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
+                const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution', '.answer-content'];
                 for (const s of sel) {
                     const el = document.querySelector(s);
-                    if (el && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
+                    // 只要有长文本且不是占位符，就认为可能已加载
+                    if (el && el.innerText.trim().length > 30 && !el.innerText.includes('点击查看解析')) return el;
                 }
                 return null;
             };
             
-            if (getVisibleAnalysis()) return; 
-
             // 2. 触发各种可能的解析/答案按钮
             const clickSelectors = [
                 '.click_analysis', 
@@ -386,16 +387,21 @@ async function triggerOfficialAnalysis(page) {
                 '.jiexi', 
                 '.answer-analysis',
                 '.btn-analysis',
+                '.show-answer',
                 '#show_answer_btn',
                 '.view-solution',
                 '.btn-answer',
-                '.view-answer'
+                '.view-answer',
+                '.subject-submit' // 问答题有时需要点击提交
             ];
             
             for (const s of clickSelectors) {
                 const els = Array.from(document.querySelectorAll(s));
                 for (const el of els) {
-                    if (isVisible(el)) { el.click(); break; }
+                    // 放宽可见性限制，有些按钮可能被透明遮罩覆盖
+                    if (isVisible(el) || el.innerText.includes('解析') || el.innerText.includes('答案')) { 
+                        el.click(); 
+                    }
                 }
             }
 
@@ -403,7 +409,7 @@ async function triggerOfficialAnalysis(page) {
             const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
                 .filter(el => {
                     const t = (el.innerText || '').trim();
-                    return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案' || t === '显示答案') && isVisible(el);
+                    return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案' || t === '显示答案' || t === '查看') && isVisible(el);
                 });
             textButtons.forEach(el => el.click());
         });
@@ -416,22 +422,25 @@ async function triggerOfficialAnalysis(page) {
     // 为 Ajax 异步加载预留缓冲时间 (针对报告中的频率限制，稍微拉长一点)
     await page.waitForTimeout(2000);
     
-    // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
-    const success = await page.waitForFunction(() => {
+    // 核心：动态等待解析内容真正出现在 DOM 中，且指纹发生了变化（代表内容已更新）
+    const success = await page.waitForFunction((oldFinger) => {
         const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
         for (const s of sel) {
             const el = document.querySelector(s);
-            // 这里放宽可见性检查，只要内容出来了就认为成功
-            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) return true;
+            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) {
+                const currentFinger = el.innerText.trim().replace(/\s/g, '').substring(0, 100);
+                // 如果没有旧指纹，或者当前指纹与旧指纹不同，说明加载成功
+                if (!oldFinger || currentFinger !== oldFinger) return true;
+            }
         }
         return false;
-    }, { timeout: 5000 }).catch(() => false);
+    }, oldAnalysisFingerprint, { timeout: 5000 }).catch(() => false);
 
     if (!success) {
-        log('解析加载缓慢或被拦截，执行深度清理并二次触发...', 'DEBUG');
+        log('解析未更新或加载缓慢，执行深度清理并二次触发...', 'DEBUG');
         await handlePopup(page);
         await trigger();
-        await page.waitForTimeout(2500);
+        await page.waitForTimeout(3000);
     }
 }
 
@@ -606,9 +615,15 @@ async function readQuestionData(page) {
                         }
 
                         let rawAnalysis = processImages(el, 'ans');
+                        // 使用 textContent 兜底 innerText (防止 display:none 导致的问题)
+                        if (!rawAnalysis || rawAnalysis.length < 10) {
+                            rawAnalysis = el.textContent.trim();
+                        }
+
                         let clean = rawAnalysis.replace(/^[\s\S]*?参考解析[：:\n]*\s*/i, '')
                                              .replace(/^[\s\S]*?答案解析[：:\n]*\s*/i, '')
                                              .replace(/^[\s\S]*?参考答案[：:\n]*\s*/i, '')
+                                             .replace(/^[\s\S]*?本题解析[：:\n]*\s*/i, '')
                                              .replace(/^[\s\S]*?解析[：:\n]*\s*/i, '')
                                              .replace(/点击查看解析/g, '')
                                              .replace(/我要纠错/g, '')
@@ -622,9 +637,14 @@ async function readQuestionData(page) {
                                              .trim();
                         
                         // 判定是否为纯占位符或 UI 垃圾
-                        if (!clean || clean === '-' || clean.length < 5 || /^[ \t\n\r\-\.]+$/.test(clean)) continue;
+                        if (!clean || clean === '-' || clean.length < 5 || /^[ \t\n\r\-\.]+$/.test(clean)) {
+                            telemetry.push({ selector: s, skipReason: 'too_short_or_garbage', length: clean?.length });
+                            continue;
+                        }
 
                         return clean;
+                    } else {
+                        telemetry.push({ selector: s, skipReason: 'visibility_and_length_fail', visible: isVisible(el), length: el.innerText.length });
                     }
                 }
             }
@@ -633,12 +653,13 @@ async function readQuestionData(page) {
 
         analysisText = trySelect(analysisSelectors, false) || trySelect(fallbackSelectors, true) || '无解析';
 
-        // 4. 讨论区后备
+        // 4. 讨论区后备 (增加对“问答题”的特别优待)
         if (analysisText === '无解析' && enableDiscussionFallback) {
-            const talks = Array.from(document.querySelectorAll('.tiku-talk-list li, .question-talk-list li'));
-            for (let i = talks.length - 1; i >= 0; i--) {
-                if (talks[i].querySelector('.terd') || talks[i].innerText.includes('老师')) {
-                    const mEl = talks[i].querySelector('.huida .mesage, .message');
+            const talks = Array.from(document.querySelectorAll('.tiku-talk-list li, .question-talk-list li, .talk-list li'));
+            for (let i = 0; i < talks.length; i++) {
+                const isTeacher = talks[i].querySelector('.terd') || talks[i].innerText.includes('老师') || talks[i].innerText.includes('欣师');
+                if (isTeacher || talks.length === 1) { // 如果只有一条评论且解析缺失，大概率是答案
+                    const mEl = talks[i].querySelector('.huida .mesage, .message, .mesage');
                     if (mEl) {
                         analysisText = `[讨论提取] ${processImages(mEl, 'talk')}`;
                         break;
@@ -1103,6 +1124,7 @@ async function crawlSubject(page, subject) {
 
                 let lastWrittenCurr = currentProgress; 
                 let lastFingerprint = ''; // 数据指纹，防止重复读取旧内容
+                let lastAnalysisFingerprint = ''; // 解析内容指纹
                 let lastStem = '';        // 用于共享题干去重
                 let stuckCount = 0;       // 页面卡死计数器
                 let retryCount = 0;       // 重复题号计数器
@@ -1120,7 +1142,7 @@ async function crawlSubject(page, subject) {
                         await page.waitForTimeout(2000);
                     }
                     
-                    await triggerOfficialAnalysis(page);
+                    await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                     await randomSleep(2000, 3500);
                     
                     let data = await readQuestionData(page);
@@ -1142,6 +1164,8 @@ async function crawlSubject(page, subject) {
                     }
                     stuckCount = 0; // 成功读取新题，重置计数
                     lastFingerprint = data.fingerprint;
+                    // 更新解析指纹，用于下一题的比对
+                    lastAnalysisFingerprint = (data.analysis || '').trim().replace(/\s/g, '').substring(0, 100);
 
                     const [curr, totalNum] = data.step.split('/').map(Number);
                     
@@ -1166,17 +1190,20 @@ async function crawlSubject(page, subject) {
                         }
                     }
 
-                    // 辅助补救：如果解析仍然缺失，模拟点击第一个选项以触发服务端返回解析
-                    if (data.answer === '未知' || data.answer === '' || data.analysis === '无解析') {
+                    // 辅助补救：如果解析仍然缺失，模拟点击选项或触发按钮
+                    if (data.analysis === '无解析') {
                         await page.evaluate(() => {
                             const opt = document.querySelector('#item_options li, .options li, .question-options li');
-                            // 关键：只有在未选中的情况下才点，避免“反向操作”取消选中
+                            // 1. 尝试点击第一个选项
                             if (opt && !opt.classList.contains('selected') && !opt.classList.contains('active')) {
                                 opt.click();
                             }
+                            // 2. 尝试点击提交按钮 (主观题常用)
+                            const submitBtn = document.querySelector('.subject-submit, #submit_btn, .btn-submit');
+                            if (submitBtn) submitBtn.click();
                         });
-                        await page.waitForTimeout(1000);
-                        await triggerOfficialAnalysis(page);
+                        await page.waitForTimeout(1500);
+                        await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                         await randomSleep(2000, 3000);
                         data = await readQuestionData(page);
                     }
