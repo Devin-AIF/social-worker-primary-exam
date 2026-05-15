@@ -540,6 +540,8 @@ async function readQuestionData(page) {
 
         // 3. 提取官方解析
         let analysisText = '无解析';
+        let telemetry = []; // 收集 DOM 结构诊断信息
+        
         // 优先级排序：先找最具体的解析容器
         const analysisSelectors = [
             '.analysis.pd10', 
@@ -566,6 +568,17 @@ async function readQuestionData(page) {
         const trySelect = (selectors, checkVisibility = true) => {
             for (const s of selectors) {
                 const elements = Array.from(document.querySelectorAll(s));
+                
+                // 收集诊断信息
+                if (elements.length > 0) {
+                    telemetry.push({
+                        selector: s,
+                        count: elements.length,
+                        visible: isVisible(elements[0]),
+                        sampleText: elements[0].innerText.substring(0, 50).replace(/\s+/g, ' ')
+                    });
+                }
+
                 for (let i = elements.length - 1; i >= 0; i--) {
                     const el = elements[i];
                     // 在背题模式下，即使元素被 CSS 隐藏（isVisible=false），只要它有实质内容也应该读取
@@ -645,7 +658,8 @@ async function readQuestionData(page) {
             answer: getAns(),
             analysis: analysisText,
             images,
-            fingerprint: (titleText.substring(0, 50) + optionsList.substring(0, 50)).replace(/\s/g, '')
+            fingerprint: (titleText.substring(0, 50) + optionsList.substring(0, 50)).replace(/\s/g, ''),
+            telemetry: analysisText === '无解析' ? JSON.stringify(telemetry) : null
         };
     }, ENABLE_DISCUSSION_FALLBACK);
 }
