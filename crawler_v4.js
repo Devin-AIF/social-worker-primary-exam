@@ -176,17 +176,73 @@ function saveStatus() {
     }
 }
 
+// --- 监控与诊断系统 ---
+const MONITOR = {
+    stats: {
+        totalCaptured: 0,
+        noAnalysisCount: 0,
+        retries: 0,
+        errors: 0,
+        startTime: new Date()
+    },
+    history: [], // 记录最近的异常事件
+    
+    /**
+     * 记录并分析异常
+     */
+    reportIssue(type, detail) {
+        this.stats.errors++;
+        const event = { timestamp: new Date(), type, detail };
+        this.history.push(event);
+        if (this.history.length > 50) this.history.shift();
+        
+        log(`[诊断报告] 检测到异常: ${type} - ${detail}`, 'WARN');
+    },
+
+    /**
+     * 运行健康检查
+     * 分析最近的抓取质量，如果发现连续解析缺失，建议用户检查
+     */
+    checkHealth() {
+        const recent = this.history.slice(-10);
+        const consecutiveNoAnalysis = recent.filter(e => e.type === 'NO_ANALYSIS').length;
+        
+        if (consecutiveNoAnalysis >= 5) {
+            log('★★★ 诊断警告：检测到连续 5 题缺失解析，可能存在选择器失效或登录态问题！ ★★★', 'ERROR');
+            return 'CRITICAL_ANALYSIS_LOSS';
+        }
+        return 'HEALTHY';
+    },
+
+    /**
+     * 生成阶段性汇总
+     */
+    printSummary() {
+        const duration = ((new Date() - this.stats.startTime) / 1000 / 60).toFixed(1);
+        log(`\n================ 运行简报 ================`, 'INFO');
+        log(`运行时长: ${duration} 分钟`, 'INFO');
+        log(`成功抓取: ${this.stats.totalCaptured} 题`, 'INFO');
+        log(`解析缺失: ${this.stats.noAnalysisCount} 题`, 'INFO');
+        log(`异常重试: ${this.stats.retries} 次`, 'INFO');
+        log(`致命错误: ${this.stats.errors} 次`, 'INFO');
+        log(`解析成功率: ${((1 - this.stats.noAnalysisCount / (this.stats.totalCaptured || 1)) * 100).toFixed(1)}%`, 'INFO');
+        log(`==========================================\n`, 'INFO');
+    }
+};
+
 /**
  * 记录日志
  * 在终端输出的同时，追加写入到 crawler.log 中，附带 ISO 格式时间戳
- * @param {string} message 日志内容
- * @param {string} type 日志级别 (INFO, WARN, ERROR, DEBUG)
  */
 function log(message, type = 'INFO') {
     const timestamp = new Date().toISOString();
     const formattedMessage = `[${timestamp}] [${type}] ${message}\n`;
     try { fs.appendFileSync(LOG_FILE, formattedMessage); } catch (e) {}
     console.log(formattedMessage.trim());
+    
+    // 自动将错误同步到监控对象
+    if (type === 'ERROR') MONITOR.stats.errors++;
+    if (type === 'WARN') MONITOR.stats.retries++;
 }
 
 /**
@@ -993,6 +1049,14 @@ async function crawlSubject(page, subject) {
             try {
                 // 开启抓取前先确保页面处于背题模式或准备就绪
                 await openChapterAtQuestion(page, chapter.url, currentProgress);
+                
+                // 诊断：如果在进入页面后连续发生错误，尝试完全刷新
+                const health = MONITOR.checkHealth();
+                if (health === 'CRITICAL_ANALYSIS_LOSS') {
+                    log('检测到关键抓取异常，执行深度刷新并重试...', 'WARN');
+                    await page.reload({ waitUntil: 'networkidle' });
+                    await openChapterAtQuestion(page, chapter.url, currentProgress);
+                }
                 // 如果从 0 开始，或者文件不存在，则初始化文件（覆盖旧内容）
                 if (!fs.existsSync(outputFile) || currentProgress === 0) {
                     fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
@@ -1144,6 +1208,17 @@ async function crawlSubject(page, subject) {
 
                     // --- 状态持久化与进度存档 ---
                     lastWrittenCurr = currFinal; 
+                    MONITOR.stats.totalCaptured++;
+                    if (data.analysis === '无解析') {
+                        MONITOR.stats.noAnalysisCount++;
+                        MONITOR.reportIssue('NO_ANALYSIS', `题号 ${currFinal} 缺失解析`);
+                    }
+
+                    // 每抓取 20 题运行一次健康检查
+                    if (MONITOR.stats.totalCaptured % 20 === 0) {
+                        MONITOR.checkHealth();
+                    }
+
                     completionStatus[statusKey] = {
                         id: chapter.id, title: chapter.title,
                         completed: currFinal, total: totalNumFinal, updatedAt: new Date().toLocaleString()
@@ -1241,6 +1316,7 @@ async function run() {
     }
 
     log('\n★★★ 所有 5 套题库全部处理完毕！★★★', 'INFO');
+    MONITOR.printSummary();
     await browser.close();
     rl.close();
 }
