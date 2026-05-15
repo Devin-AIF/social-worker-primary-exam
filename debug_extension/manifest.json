@@ -1,16 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "Scraper Debugger Helper",
-  "version": "1.0",
-  "description": "辅助定位抓取脚本问题的调试工具",
+  "name": "Scraper Monitor Plus",
+  "version": "1.1",
+  "description": "支持跨页签持续追踪的抓取调试工具",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.xs507.com/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html"
   },
