@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Scraper Monitor Plus",
-  "version": "1.1",
-  "description": "支持跨页签持续追踪的抓取调试工具",
+  "name": "Scraper Monitor Ultra",
+  "version": "1.2",
+  "description": "加固型全域监控调试工具",
   "permissions": [
     "activeTab",
     "scripting",
@@ -22,7 +22,7 @@
     {
       "matches": ["https://www.xs507.com/*"],
       "js": ["content.js"],
-      "run_at": "document_start"
+      "run_at": "document_end"
     }
   ]
 }
