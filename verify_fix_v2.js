@@ -50,7 +50,14 @@ async function run() {
             await page.screenshot({ path: 'product_list_v2.png' });
         }
         
-        const targetChapter = await page.$('a:has-text("第一章")');
+        const targetChapter = await page.$('a:has-text("做题")');
+        if (targetChapter) {
+            const containerText = await page.evaluate(() => {
+                const container = document.querySelector('.question-conten-list, .product-box, #main-tiku-box');
+                return container ? container.innerText : 'Container not found';
+            });
+            log('容器文本: ' + containerText.substring(0, 500));
+        }
         if (!targetChapter) {
             const allLinks = await page.evaluate(() => Array.from(document.querySelectorAll('a')).map(a => a.innerText.trim()).filter(t => t.length > 0));
             log('页面链接列表: ' + allLinks.join(' | '));
