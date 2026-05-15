@@ -602,8 +602,17 @@ async function readQuestionData(page) {
                                              .replace(/我要纠错/g, '')
                                              .replace(/从错题本移除/g, '')
                                              .replace(/提交/g, '')
+                                             .replace(/试题讨论/g, '')
+                                             .replace(/发表讨论/g, '')
+                                             .replace(/上一题/g, '')
+                                             .replace(/下一题/g, '')
+                                             .replace(/保存进度并退出/g, '')
                                              .trim();
-                        if (clean.length > 5) return clean;
+                        
+                        // 判定是否为纯占位符或 UI 垃圾
+                        if (!clean || clean === '-' || clean.length < 5 || /^[ \t\n\r\-\.]+$/.test(clean)) continue;
+
+                        return clean;
                     }
                 }
             }
@@ -659,7 +668,11 @@ async function readQuestionData(page) {
             analysis: analysisText,
             images,
             fingerprint: (titleText.substring(0, 50) + optionsList.substring(0, 50)).replace(/\s/g, ''),
-            telemetry: analysisText === '无解析' ? JSON.stringify(telemetry) : null
+            telemetry: analysisText === '无解析' ? JSON.stringify({ 
+                elements: telemetry, 
+                titleSample: titleText.substring(0, 30),
+                url: window.location.href 
+            }) : null
         };
     }, ENABLE_DISCUSSION_FALLBACK);
 }
