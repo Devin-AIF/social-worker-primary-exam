@@ -127,8 +127,12 @@ function migrateOldData() {
         }
         if (statusChanged) {
             completionStatus = newStatus;
-            try { fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); } catch (e) {}
-            log('已更新 completion_status.json 适配新层级结构', 'INFO');
+            try { 
+                fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); 
+                log('已更新 completion_status.json 适配新层级结构', 'INFO');
+            } catch (e) {
+                log(`更新进度文件失败: ${e.message}`, 'ERROR');
+            }
         }
     }
 }
@@ -165,7 +169,11 @@ function getCompletedCount(outputFile) {
  * 将内存中的 completionStatus 字典写入 JSON 文件，供下次启动时恢复
  */
 function saveStatus() {
-    try { fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); } catch (e) {}
+    try { 
+        fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2)); 
+    } catch (e) {
+        log(`保存进度失败: ${e.message}`, 'ERROR');
+    }
 }
 
 /**
