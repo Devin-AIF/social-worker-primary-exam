@@ -82,14 +82,20 @@ async function run() {
         
         // Trigger analysis
         await page.evaluate(() => {
+            const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
             const btns = Array.from(document.querySelectorAll('a, button, span, div'))
                 .filter(el => {
                     const t = el.innerText.trim();
-                    return t === '查看解析' || t === '解析' || t === '查看答案' || t === '参考答案' || t === '显示答案';
+                    return (t === '查看解析' || t === '解析' || t === '查看答案' || t === '参考答案' || t === '显示答案') && isVisible(el);
                 });
             btns.forEach(b => b.click());
         });
-        await page.waitForTimeout(3000);
+        
+        log('等待解析内容加载...');
+        await page.waitForFunction(() => {
+            const el = document.querySelector('.analysis, #answer_analysis, .subject-answer, .answer-content, .solution');
+            return el && el.innerText.trim().length > 20 && !el.innerText.includes('点击查看解析');
+        }, { timeout: 8000 }).catch(() => log('解析加载超时'));
 
         const data = await page.evaluate(() => {
             const getStep = () => {
@@ -99,13 +105,22 @@ async function run() {
             const analysisSelectors = ['.analysis', '#answer_analysis', '.subject-answer', '.answer-content', '.solution'];
             let ans = '无解析';
             for (const s of analysisSelectors) {
-                const el = document.querySelector(s);
-                if (el && el.innerText.trim().length > 10) { ans = el.innerText.trim(); break; }
+                const els = Array.from(document.querySelectorAll(s));
+                for (const el of els) {
+                    const t = el.innerText.trim();
+                    if (t.length > 20 && !t.includes('点击查看解析')) {
+                        ans = t;
+                        return { step: getStep(), analysis: ans };
+                    }
+                }
             }
             return { step: getStep(), analysis: ans };
         });
 
         log(`题号: ${data.step} | 解析长度: ${data.analysis.length}`);
+        console.log('--- 解析内容 ---');
+        console.log(data.analysis);
+        console.log('----------------');
         if (data.analysis.length > 20) log('解析提取成功!');
         else log('解析提取失败: ' + data.analysis);
 
