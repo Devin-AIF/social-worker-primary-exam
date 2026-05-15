@@ -1148,7 +1148,7 @@ async function crawlSubject(page, subject) {
  * 全自动主入口：登录 -> 遍历5套题库 -> 逐一切换并抓取
  */
 async function run() {
-    log('正在开启 V19.0 全自动多题库版...', 'INFO');
+    log('正在开启 V20.0 全自动多题库版...', 'INFO');
     const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     const page = await context.newPage();
