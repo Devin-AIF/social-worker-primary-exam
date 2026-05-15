@@ -272,13 +272,20 @@ async function randomSleep(min, max) {
 async function handlePopup(page) {
     await page.evaluate(() => {
         // 1. 移除真正的透明遮罩（它们会挡住点击）
-        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg'];
+        const shades = [
+            '.layui-layer-shade', 
+            '#video_analysis_ratelimit_overlay', 
+            '.layerSaveSuccess', 
+            '#popup_box_bg',
+            '.mask',
+            '.loading-mask'
+        ];
         shades.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.remove());
         });
 
         // 2. 移除干扰答题区域或按钮的固定浮窗
-        const floatingMasks = ['.fix-bottom', '.ad-box'];
+        const floatingMasks = ['.fix-bottom', '.ad-box', '.layui-layer', '.popup-box'];
         floatingMasks.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.remove());
         });
@@ -289,9 +296,9 @@ async function handlePopup(page) {
             if (window.video_analysis_ratelimit_timer) {
                 clearInterval(window.video_analysis_ratelimit_timer);
             }
-        } catch (e) {
-            // 忽略由于网页端变量为常量导致的赋值错误
-        }
+            // 强制重置网站可能的冷却倒计时
+            if (typeof reset_ratelimit === 'function') reset_ratelimit();
+        } catch (e) {}
     });
 }
 
@@ -308,7 +315,8 @@ async function safeClick(page, selector, waitAfter = 0) {
     } catch (e) {
         await element.evaluate(el => el.click()).catch(() => {});
     }
-    if (waitAfter > 0) await page.waitForTimeout(waitAfter);
+    // 增加一个微小的随机抖动，防止固定频率被特征识别
+    if (waitAfter > 0) await page.waitForTimeout(waitAfter + Math.random() * 500);
     await handlePopup(page);
     return true;
 }
@@ -362,7 +370,7 @@ async function triggerOfficialAnalysis(page) {
                 const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
                 for (const s of sel) {
                     const el = document.querySelector(s);
-                    if (isVisible(el) && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
+                    if (el && el.innerText.trim().length > 15 && !el.innerText.includes('点击查看解析')) return el;
                 }
                 return null;
             };
@@ -378,7 +386,6 @@ async function triggerOfficialAnalysis(page) {
                 '.jiexi', 
                 '.answer-analysis',
                 '.btn-analysis',
-                '.show-answer',
                 '#show_answer_btn',
                 '.view-solution',
                 '.btn-answer',
@@ -402,24 +409,29 @@ async function triggerOfficialAnalysis(page) {
         });
     };
 
+    // 在触发解析前，先清理一次可能存在的频率限制遮罩
+    await handlePopup(page);
     await trigger();
-    // 为 Ajax 异步加载预留缓冲时间
-    await page.waitForTimeout(1500);
+    
+    // 为 Ajax 异步加载预留缓冲时间 (针对报告中的频率限制，稍微拉长一点)
+    await page.waitForTimeout(2000);
     
     // 核心：动态等待解析内容真正出现在 DOM 中且包含文本
     const success = await page.waitForFunction(() => {
         const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
         for (const s of sel) {
             const el = document.querySelector(s);
+            // 这里放宽可见性检查，只要内容出来了就认为成功
             if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) return true;
         }
         return false;
-    }, { timeout: 4000 }).catch(() => false);
+    }, { timeout: 5000 }).catch(() => false);
 
     if (!success) {
-        log('解析加载缓慢，尝试二次触发...', 'DEBUG');
+        log('解析加载缓慢或被拦截，执行深度清理并二次触发...', 'DEBUG');
+        await handlePopup(page);
         await trigger();
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(2500);
     }
 }
 
