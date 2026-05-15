@@ -104,7 +104,15 @@ function migrateOldData() {
     }
 
     if (fs.existsSync(STATUS_FILE)) {
-        try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch (e) {}
+        try { 
+            const content = fs.readFileSync(STATUS_FILE, 'utf-8');
+            if (content.trim()) {
+                completionStatus = JSON.parse(content);
+            }
+        } catch (e) {
+            log(`读取进度文件失败: ${e.message}。请检查 ${STATUS_FILE} 格式是否正确。为防止进度丢失，脚本已停止。`, 'ERROR');
+            process.exit(1); 
+        }
         let statusChanged = false;
         const newStatus = {};
         for (const key in completionStatus) {
