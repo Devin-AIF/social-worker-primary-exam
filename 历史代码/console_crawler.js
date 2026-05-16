@@ -139,9 +139,13 @@ async function startCrawling() {
 
     // 拼接成 Markdown 文本
     const titleName = document.title ? document.title.split('-')[0] : '抓取结果';
-    const md = `# ${titleName}\n\n` + questions.map((q, i) => 
-        `## 第 ${i + 1} 题 [${q.type}]\n\n**题目：** ${q.title}\n\n**选项：**\n\`\`\`\n${q.options}\n\`\`\`\n\n> **正确答案：** ${q.answer}\n\n**解析：**\n${q.analysis}\n\n---\n`
-    ).join('\n');
+    const md = `# ${titleName}\n\n` + questions.map((q, i) => {
+        // 判断是否为客观题（有选项的题型）
+        const isObjective = !['简答题', '案例分析题', '案例题', '计算题', '论述题', '填空题', '主观题'].some(t => q.type.includes(t));
+        const optionsSection = (isObjective && q.options) ? `**选项：**\n\`\`\`\n${q.options}\n\`\`\`\n\n` : '';
+        
+        return `## 第 ${i + 1} 题 [${q.type}]\n\n**题目：** ${q.title}\n\n${optionsSection}> **正确答案：** ${q.answer}\n\n**解析：**\n${q.analysis}\n\n---\n`;
+    }).join('\n');
 
     // 触发浏览器下载
     const blob = new Blob([md], { type: 'text/markdown' });
