@@ -184,6 +184,27 @@ async function readQuestionData(page, staleState = {}) {
         };
 
         const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析)$/i.test((text || '').trim());
+        const normalizeFingerprint = (text, limit = 160) => (text || '').replace(/\s/g, '').substring(0, limit);
+        const hasStepPattern = (text) => /\b\d+\s*\/\s*\d+\b/.test(text || '');
+        const looksLikeUiJunk = (text) => {
+            const value = (text || '').trim();
+            if (!value) return true;
+            if (isPlaceholderAnswer(value)) return true;
+            if (value.includes('试题讨论') || value.includes('点击查看更多') || value.includes('没有更多了')) return true;
+            if (value.includes('问答题') || value.includes('单选题') || value.includes('多选题') || value.includes('案例题')) return true;
+            if (value.includes('答：') || value.includes('答案及')) return true;
+            if (hasStepPattern(value)) return true;
+            return false;
+        };
+        const stripUiJunk = (text) => {
+            let value = (text || '').trim();
+            value = value.replace(/试题讨论[\s\S]*$/g, '').trim();
+            value = value.replace(/点击查看更多↓?/g, '').replace(/没有更多了/g, '').trim();
+            value = value.replace(/^\s*(问答题|单选题|多选题|案例题)\s*/g, '').trim();
+            value = value.replace(/^\s*\d+\s*\/\s*\d+\s*/g, '').trim();
+            value = value.replace(/\n?\s*答：\s*$/g, '').trim();
+            return value;
+        };
 
         const isProbablyStale = (fingerprint) => {
             if (!fingerprint) return false;
@@ -241,6 +262,8 @@ async function readQuestionData(page, staleState = {}) {
         };
         const optionsList = fetchOptions();
         const titleFingerprint = (titleText + stemText).replace(/\s/g, '');
+        const itemType = document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型';
+        const isSubjective = /问答题|简答题|案例分析题|论述题|方案设计题|主观题|案例题/.test(itemType);
 
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
@@ -266,11 +289,13 @@ async function readQuestionData(page, staleState = {}) {
 
                 const candidate = processContent(el, 'ans');
                 if (!candidate || candidate.length < 5) continue;
+                if (looksLikeUiJunk(candidate)) continue;
 
-                const candidateFingerprint = candidate.replace(/\s/g, '').substring(0, 100);
+                const candidateFingerprint = normalizeFingerprint(candidate, 100);
                 if (isProbablyStale(candidateFingerprint)) continue;
+                if (oldTitleFingerprint && candidateFingerprint.includes(oldTitleFingerprint) && !candidateFingerprint.includes(titleFingerprint)) continue;
 
-                fullAnaText = candidate;
+                fullAnaText = stripUiJunk(candidate);
                 break;
             }
             if (fullAnaText) break;
@@ -281,17 +306,17 @@ async function readQuestionData(page, staleState = {}) {
                 const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
                 if (anaMatch) {
                     const parts = fullAnaText.split(anaMatch[0]);
-                    finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
-                    finalAnalysis = parts.slice(1).join(anaMatch[0]).trim();
+                    finalAnswer = stripUiJunk(parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
+                    finalAnalysis = stripUiJunk(parts.slice(1).join(anaMatch[0]).trim());
                 } else if (fullAnaText.includes('暂无解析')) {
-                    finalAnswer = fullAnaText.split('暂无解析')[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnswer = stripUiJunk(fullAnaText.split('暂无解析')[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
                     finalAnalysis = '无';
                 } else {
-                    finalAnswer = fullAnaText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnswer = stripUiJunk(fullAnaText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
                     finalAnalysis = '无';
                 }
             } else {
-                finalAnalysis = fullAnaText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim();
+                finalAnalysis = stripUiJunk(fullAnaText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim());
                 if (finalAnalysis === '') finalAnalysis = fullAnaText;
             }
         }
@@ -303,8 +328,9 @@ async function readQuestionData(page, staleState = {}) {
                 const el = elements[i];
                 const raw = (el.innerText || el.textContent || '').trim();
                 if (!raw || raw.length < 1) continue;
-                const fp = raw.replace(/\s/g, '').substring(0, 100);
+                const fp = normalizeFingerprint(raw, 100);
                 if (isProbablyStale(fp)) continue;
+                if (looksLikeUiJunk(raw)) continue;
 
                 const explicitLetters = extractLetters(raw);
                 if (explicitLetters) {
@@ -312,8 +338,11 @@ async function readQuestionData(page, staleState = {}) {
                     break;
                 }
 
-                const cleaned = raw.replace(/^(正确答案|答案|参考答案)[：:\s]*/, '').trim();
-                if (cleaned && cleaned.length <= 100 && cleaned !== finalAnalysis && !isPlaceholderAnswer(cleaned)) {
+                const cleaned = stripUiJunk(raw.replace(/^(正确答案|答案|参考答案)[：:\s]*/, '').trim());
+                const cleanedFinger = normalizeFingerprint(cleaned, 120);
+                if (titleFingerprint && cleanedFinger.includes(titleFingerprint)) continue;
+                if (oldTitleFingerprint && cleanedFinger.includes(oldTitleFingerprint) && !cleanedFinger.includes(titleFingerprint)) continue;
+                if (cleaned && cleaned.length <= 100 && cleaned !== finalAnalysis && !looksLikeUiJunk(cleaned)) {
                     finalAnswer = cleaned;
                     break;
                 }
@@ -322,6 +351,11 @@ async function readQuestionData(page, staleState = {}) {
         }
 
         if (isPlaceholderAnswer(finalAnswer)) finalAnswer = '未知';
+        if (looksLikeUiJunk(finalAnswer)) finalAnswer = '未知';
+        if (isSubjective && finalAnswer !== '未知' && finalAnswer.length > 20) finalAnswer = '未知';
+        if (isSubjective && finalAnalysis !== '无解析' && finalAnalysis !== '无解析 (抓取冲突已拦截)' && finalAnalysis.length < 5) {
+            finalAnalysis = fullAnaText || finalAnalysis;
+        }
 
         const titleFinger = titleText.replace(/\s/g, '');
         if (finalAnalysis.replace(/\s/g, '').includes(titleFinger) && finalAnalysis.length < titleText.length + 50) {
@@ -331,7 +365,7 @@ async function readQuestionData(page, staleState = {}) {
         const resolvedFingerprint = `${finalAnswer}|${finalAnalysis}`.replace(/\s/g, '').substring(0, 160);
 
         return {
-            type: document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型',
+            type: itemType,
             step, itemId: document.querySelector('#item_id')?.innerText.trim() || '',
             stem: stemText, title: titleText, options: optionsList,
             answer: finalAnswer, analysis: finalAnalysis, images,
