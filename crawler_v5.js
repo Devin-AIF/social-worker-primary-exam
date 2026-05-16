@@ -68,11 +68,10 @@ function getCompletedCount(filePath) {
 
 async function handlePopup(page) {
     await page.evaluate(() => {
-        // 暴力清除遮罩和隐藏属性
-        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg', '.mask', '.loading-mask', '.hide', '.analysis-lock'];
+        // 只清理遮罩，不删除被隐藏的业务节点
+        const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg', '.mask', '.loading-mask', '.analysis-lock', '.layerFeedback', '.layui-layer'];
         shades.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
         try {
-            localStorage.clear(); sessionStorage.clear();
             document.querySelectorAll('.hide, .hidden').forEach(el => el.classList.remove('hide', 'hidden'));
             const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
             analysisSelectors.forEach(s => {
@@ -85,6 +84,38 @@ async function handlePopup(page) {
             });
         } catch(e) {}
     });
+}
+
+async function installDomGuard(page) {
+    await page.evaluate(() => {
+        if (window.__crawlerDomGuardInstalled) return;
+        window.__crawlerDomGuardInstalled = true;
+
+        const cleanup = () => {
+            const popups = ['.layerSaveSuccess', '.layui-layer-shade', '.layui-layer', '#video_analysis_ratelimit_overlay', '.layerFeedback', '#popup_box_bg', '.mask', '.loading-mask'];
+            popups.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
+
+            document.querySelectorAll('.hide, .hidden').forEach(el => el.classList.remove('hide', 'hidden'));
+            const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
+            analysisSelectors.forEach(s => {
+                document.querySelectorAll(s).forEach(el => {
+                    el.style.display = 'block';
+                    el.style.visibility = 'visible';
+                    el.style.opacity = '1';
+                });
+            });
+
+            document.querySelectorAll('[style*="display: none"]').forEach(el => {
+                if (el.id !== 'item_star' && !String(el.className || '').includes('show_child fr')) {
+                    el.style.display = 'block';
+                }
+            });
+        };
+
+        cleanup();
+        const observer = new MutationObserver(cleanup);
+        observer.observe(document.documentElement || document.body, { childList: true, subtree: true, attributes: true });
+    }).catch(() => {});
 }
 
 async function safeClick(page, selector, waitAfter = 0) {
@@ -152,7 +183,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 img.replaceWith(` ![图](./images/${name}) `);
             });
 
-            let text = clone.innerText.trim();
+            let text = (clone.innerText || clone.textContent || '').trim();
             const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g, /查看视频/g, /听课/g, /展开解析/g];
             junkPatterns.forEach(p => text = text.replace(p, ''));
             return text.trim();
@@ -160,9 +191,14 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
 
         const titleEl = document.querySelector('#item_title, .item-title, .subject-title');
         const subTitleEl = document.querySelector('.subject-sub-title, .question-sub-title');
-        let stemText = processContent(titleEl, 'stem');
-        let titleText = processContent(subTitleEl, 'tit');
-        if (!titleText) { titleText = stemText; stemText = ''; }
+        let titleText = processContent(titleEl, 'tit');
+        let stemText = processContent(subTitleEl, 'stem');
+        if (!titleText) {
+            titleText = stemText;
+            stemText = '';
+        } else if (stemText && titleText.includes(stemText)) {
+            stemText = '';
+        }
 
         const fetchOptions = () => {
             const selectors = ['#item_options li', '.options li', '.question-options li', '.subject-option li', '.option-list li'];
@@ -186,7 +222,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             }
         }
 
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const el = document.querySelector(s);
@@ -211,7 +247,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                     finalAnalysis = '无';
                 }
             } else {
-                finalAnalysis = fullAnaText.replace(/^(参考解析|答案解析|解析)[：:\n\s]*/i, '').trim();
+                finalAnalysis = fullAnaText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim();
                 if (finalAnalysis === '') finalAnalysis = fullAnaText;
             }
         }
@@ -247,10 +283,21 @@ async function waitForQuestionChange(page, oldStep, oldItemId) {
     await randomSleep(1000, 1500); 
 }
 
+async function waitForQuestionReady(page) {
+    await page.waitForFunction(() => {
+        const title = document.querySelector('#item_title, .item-title, .subject-title');
+        const step = document.querySelector('#item_step, .item-step');
+        return title && (title.innerText || title.textContent || '').trim().length > 0 && step && step.innerText.includes('/');
+    }, { timeout: 15000 }).catch(() => {});
+    await installDomGuard(page);
+    await handlePopup(page);
+}
+
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     const finalUrl = (questionIndex === 0 && !chapterUrl.includes('again=1')) ? (chapterUrl.includes('?') ? `${chapterUrl}&again=1` : `${chapterUrl}?again=1`) : chapterUrl;
     await page.goto(finalUrl).catch(() => {});
     await randomSleep(4000, 6000);
+    await installDomGuard(page);
     await handlePopup(page);
     const startSelectors = ['a.enable.a2', 'a:has-text("开始做题")', 'a:has-text("练习模式")', '#PaperStartTimes'];
     for (const selector of startSelectors) { if (await safeClick(page, selector, 5000)) break; }
@@ -263,6 +310,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     });
     await randomSleep(3000, 5000);
     await handlePopup(page);
+    await waitForQuestionReady(page);
 
     if (questionIndex > 0) {
         log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
@@ -278,6 +326,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
              if (jumpInput) { await jumpInput.focus(); await jumpInput.fill(String(questionIndex + 1)); await page.keyboard.press('Enter'); }
         }
         await randomSleep(3000, 5000);
+        await waitForQuestionReady(page);
     }
 }
 
@@ -377,6 +426,8 @@ async function crawlSubject(page, subject) {
 
         await page.goto(cat.url).catch(() => {});
         await randomSleep(3500, 5500);
+        await installDomGuard(page);
+        await handlePopup(page);
 
         const chapters = await page.evaluate(() => {
             const container = document.querySelector('.question-conten-list, .product-box, #main-tiku-box') || document.body;
@@ -405,16 +456,35 @@ async function crawlSubject(page, subject) {
 
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
+            if (startFrom === 0 && fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
 
             log(`    [开始] ${chapter.title} (断点: ${startFrom})`, 'INFO');
             await openChapterAtQuestion(page, chapter.url, startFrom);
 
             let lastAnalysisFingerprint = '';
             let lastStem = '';
+            let lastFingerprint = '';
+            let stuckCount = 0;
             while (true) {
+                await waitForQuestionReady(page);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                 const data = await readQuestionData(page, lastAnalysisFingerprint);
                 const [curr, totalNum] = data.step.split('/').map(Number);
+                if (!data.title || !curr || !totalNum) {
+                    log(`题目页数据异常，step=${data.step} title=${data.title ? 'OK' : 'EMPTY'}`, 'WARN');
+                    break;
+                }
+
+                if (data.fingerprint === lastFingerprint) {
+                    stuckCount++;
+                    if (stuckCount >= 3) {
+                        log(`连续 ${stuckCount} 次读取到同一题目，停止当前章节以避免死循环: ${chapter.title}`, 'WARN');
+                        break;
+                    }
+                } else {
+                    stuckCount = 0;
+                    lastFingerprint = data.fingerprint;
+                }
 
                 let md = `## 第 ${curr} 题 [${data.type}]\n\n`;
                 if (data.stem && data.stem !== lastStem) { md += `**【背景】**\n${data.stem}\n\n`; lastStem = data.stem; }
@@ -439,6 +509,7 @@ async function crawlSubject(page, subject) {
                         const old = { step: data.step, id: data.itemId };
                         await next.click({ force: true });
                         await waitForQuestionChange(page, old.step, old.id);
+                        await waitForQuestionReady(page);
                     } else { break; }
                 } else { break; }
             }
