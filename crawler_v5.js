@@ -534,8 +534,10 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
         };
 
         const extractLetters = (text) => {
-            const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/) || (text || '').match(/答案[^A-F]*([A-F]+)/);
-            return match ? match[1].replace(/[^A-F]/g, '') : '';
+            if (!text) return '';
+            // 优化正则，支持“正确答案：A”、“答案 A”以及孤立的“A”
+            const match = text.match(/正确答案[^A-F]*([A-F、,，\s]+)/) || text.match(/答案[^A-F]*([A-F]+)/) || text.match(/[A-F]{1,6}/);
+            return match ? (match[1] || match[0]).replace(/[^A-F]/g, '') : '';
         };
 
         const images = [];
@@ -549,53 +551,60 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
         };
         const step = getStep();
 
-        // 辅助：获取纯文本指纹用于比对
-        const getFingerprint = (el) => {
+        // 核心：深度清洗并提取内容（源自 console_crawler.js 的 processContent 思想）
+        const processContent = (el, prefix) => {
             if (!el) return '';
-            return el.innerText.replace(/\s/g, '');
+            const clone = el.cloneNode(true);
+            
+            // 1. 移除干扰元素
+            const junkSelectors = [
+                '.click_analysis', '.err_correct', '.remove_wrong', '.video_analysis', 
+                '.subject-type', '.subject-score', '.subject-order', '.subject-collect',
+                'button', '.btn', '.hidden', '.hide', '.item-step', '.analysis-lock',
+                '.analysis-ratelimit-tip', '.video-btn', '.layerSaveSuccess'
+            ];
+            junkSelectors.forEach(s => {
+                clone.querySelectorAll(s).forEach(sub => sub.remove());
+            });
+
+            // 2. 处理图片并本地化路径
+            const imgs = Array.from(clone.querySelectorAll('img'));
+            imgs.forEach((img, idx) => {
+                let src = img.getAttribute('src') || img.getAttribute('data-src') || img.src;
+                if (!src) return;
+                
+                // 处理协议补全
+                if (src.startsWith('//')) src = 'https:' + src;
+                
+                const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
+                images.push({ name, url: src });
+                
+                const span = document.createElement('span');
+                span.innerText = ` ![图](./images/${name}) `;
+                img.replaceWith(span);
+            });
+
+            let text = clone.innerText.trim();
+            
+            // 3. 正则清洗干扰文案
+            const junkPatterns = [
+                /点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, 
+                /提交/g, /试题讨论/g, /发表讨论/g, /上一题/g, /下一题/g, /保存进度并退出/g,
+                /\[视频解析\]/g, /\[查看解析\]/g
+            ];
+            junkPatterns.forEach(p => {
+                text = text.replace(p, '');
+            });
+
+            return text.trim();
         };
 
-        // 1. 提取题目（区分共享题干与子题目）
+        // 1. 提取题目
         const stemEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
         const subTitleEl = document.querySelector('.subject-sub-title, .question-sub-title');
-        const titleFingerprint = getFingerprint(stemEl) + getFingerprint(subTitleEl);
-
-        // 核心：原地提取逻辑（不克隆，确保 innerText 格式完美）
-        const processImages = (container, prefix) => {
-            if (!container) return '';
-            const imgs = Array.from(container.querySelectorAll('img'));
-            const originalDisplays = imgs.map(img => img.style.display);
-            
-            imgs.forEach((img, idx) => {
-                const src = img.getAttribute('src');
-                const alt = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
-                
-                if (src) {
-                    if (alt && alt.length > 0 && alt.length < 50) {
-                        const span = document.createElement('span');
-                        span.className = 'gemini-img-marker';
-                        span.innerText = alt; 
-                        img.parentNode.insertBefore(span, img);
-                        img.style.display = 'none';
-                    } else {
-                        const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
-                        images.push({ name, url: src });
-                        const span = document.createElement('span');
-                        span.className = 'gemini-img-marker';
-                        span.innerText = `![图](./images/${name})`;
-                        img.parentNode.insertBefore(span, img);
-                        img.style.display = 'none'; 
-                    }
-                }
-            });
-            const text = container.innerText.trim();
-            container.querySelectorAll('.gemini-img-marker').forEach(el => el.remove());
-            imgs.forEach((img, i) => img.style.display = originalDisplays[i]);
-            return text;
-        };
-
-        let stemText = processImages(stemEl, 'stem');
-        let titleText = processImages(subTitleEl, 'tit');
+        
+        let stemText = processContent(stemEl, 'stem');
+        let titleText = processContent(subTitleEl, 'tit');
         if (!titleText) {
             titleText = stemText;
             stemText = '';
@@ -603,13 +612,10 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
 
         // 2. 提取选项
         const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li')).filter(isVisible);
-        const optionsList = optionEls.map((li, idx) => processImages(li, `opt${idx}`)).join('\n');
+        const optionsList = optionEls.map((li, idx) => processContent(li, `opt${idx}`)).join('\n');
 
         // 3. 提取官方解析
-        let analysisText = '无解析';
-        let telemetry = []; // 收集 DOM 结构诊断信息
-        
-        // 优先级排序：先找最具体的解析容器
+        let analysisRaw = '无解析';
         const analysisSelectors = [
             '.analysis.pd10', 
             '#answer_analysis .analysis', 
@@ -621,101 +627,45 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             '.answer-detail',
             '#answer_analysis_detail',
             '.jiexi-content',
-            '.solution'
+            '.solution',
+            '.answer-content'
         ];
         
-        // 兜底容器（可能包含题目，需慎重校验）
-        const fallbackSelectors = [
-            '.subject-answer',
-            '.answer-content',
-            '.question-answer',
-            '#answer'
-        ];
+        const fallbackSelectors = ['.subject-answer', '.question-answer', '#answer'];
 
         const trySelect = (selectors, checkVisibility = true) => {
             for (const s of selectors) {
                 const elements = Array.from(document.querySelectorAll(s));
-                
-                // 收集诊断信息
-                if (elements.length > 0) {
-                    telemetry.push({
-                        selector: s,
-                        count: elements.length,
-                        visible: isVisible(elements[0]),
-                        sampleText: elements[0].innerText.substring(0, 50).replace(/\s+/g, ' ')
-                    });
-                }
-
                 for (let i = elements.length - 1; i >= 0; i--) {
                     const el = elements[i];
-                    // 在背题模式下，即使元素被 CSS 隐藏（isVisible=false），只要它有实质内容也应该读取
                     if (!checkVisibility || isVisible(el) || (el.innerText.trim().length > 20 && !el.innerText.includes('点击查看解析'))) {
-                        let raw = el.innerText.trim();
-                        if (raw.includes('点击查看解析') || raw.length < 5) continue;
+                        let content = processContent(el, 'ans');
+                        if (!content || content.length < 5) continue;
 
-                        // 核心校验：指纹比对逻辑 (防止读取上一题残留解析)
-                        const currentFingerprint = raw.replace(/\s/g, '').substring(0, 100);
-                        if (oldAnalysisFingerprint && currentFingerprint === oldAnalysisFingerprint) {
-                            telemetry.push({ selector: s, skipReason: 'stale_content', sample: currentFingerprint.substring(0, 20) });
-                            continue;
-                        }
+                        // 指纹去重
+                        const finger = content.replace(/\s/g, '').substring(0, 100);
+                        if (oldAnalysisFingerprint && finger === oldAnalysisFingerprint) continue;
 
-                        // 核心校验：如果提取出的内容与题目内容高度重叠且没有显著新增内容，则认为是误抓了题目容器
-                        const rawFingerprint = raw.replace(/\s/g, '');
-                        if (titleFingerprint && rawFingerprint.includes(titleFingerprint)) {
-                            // 如果长度差距不大，极大概率只是题目文本的副本
-                            if (rawFingerprint.length < titleFingerprint.length + 50) continue;
-                        }
-
-                        let rawAnalysis = processImages(el, 'ans');
-                        // 优先保证获取到文本，无论是否可见
-                        if (!rawAnalysis || rawAnalysis.length < 5) {
-                            rawAnalysis = (el.innerText || el.textContent || '').trim();
-                        }
-
-                        // 改进的清洗正则：仅匹配开头的特定标识，不伤及正文
-                        let clean = rawAnalysis.replace(/^(参考解析|答案解析|参考答案|本题解析|解析)[：:\n\s]*/i, '')
-                                             .replace(/点击查看解析/g, '')
-                                             .replace(/我要纠错/g, '')
-                                             .replace(/从错题本移除/g, '')
-                                             .replace(/提交/g, '')
-                                             .replace(/试题讨论/g, '')
-                                             .replace(/发表讨论/g, '')
-                                             .replace(/上一题/g, '')
-                                             .replace(/下一题/g, '')
-                                             .replace(/保存进度并退出/g, '')
-                                             .trim();
-                        
-                        // 判定是否为纯占位符或 UI 垃圾
-                        if (!clean || clean === '-' || clean.length < 2 || /^[ \t\n\r\-\.]+$/.test(clean)) {
-                            telemetry.push({ selector: s, skipReason: 'too_short_or_garbage', length: clean?.length, text: clean?.substring(0, 10) });
-                            continue;
-                        }
-
-                        return clean;
-                    } else {
-                        telemetry.push({ selector: s, skipReason: 'visibility_and_length_fail', visible: isVisible(el), length: el.innerText.length });
+                        return content;
                     }
                 }
             }
             return null;
         };
 
-        analysisText = trySelect(analysisSelectors, false) || trySelect(fallbackSelectors, true) || '无解析';
+        analysisRaw = trySelect(analysisSelectors, false) || trySelect(fallbackSelectors, true) || '无解析';
 
-        // 4. 讨论区后备 (增加对“问答题”的特别优待)
-        if (analysisText === '无解析' && enableDiscussionFallback) {
+        // 4. 讨论区后备
+        if (analysisRaw === '无解析' && enableDiscussionFallback) {
             const talks = Array.from(document.querySelectorAll('.tiku-talk-list li, .question-talk-list li, .talk-list li'));
             for (let i = 0; i < talks.length; i++) {
                 const isTeacher = talks[i].querySelector('.terd') || talks[i].innerText.includes('老师') || talks[i].innerText.includes('欣师');
-                if (isTeacher || talks.length === 1) { // 如果只有一条评论且解析缺失，大概率是答案
+                if (isTeacher || (talks.length === 1 && talks[i].innerText.length > 10)) {
                     const mEl = talks[i].querySelector('.huida .mesage, .message, .mesage');
                     if (mEl) {
-                        const talkText = processImages(mEl, 'talk');
-                        // 讨论内容也要防重复
-                        const talkFinger = talkText.replace(/\s/g, '').substring(0, 100);
-                        if (!oldAnalysisFingerprint || talkFinger !== oldAnalysisFingerprint) {
-                            analysisText = `[讨论提取] ${talkText}`;
+                        const talkText = processContent(mEl, 'talk');
+                        if (talkText.length > 5) {
+                            analysisRaw = `[讨论提取] ${talkText}`;
                             break;
                         }
                     }
@@ -723,7 +673,21 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             }
         }
 
-        // 5. 提取答案
+        // 5. 智能拆分解析与答案
+        let analysisText = analysisRaw;
+        let extractedAnsFromAnalysis = '';
+        if (analysisRaw !== '无解析') {
+            const parts = analysisRaw.split(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
+            if (parts.length >= 3) {
+                extractedAnsFromAnalysis = extractLetters(parts[0]);
+                analysisText = parts.slice(2).join('').trim();
+            } else {
+                extractedAnsFromAnalysis = extractLetters(analysisRaw);
+                analysisText = analysisRaw.replace(/^(参考解析|答案解析|参考答案|本题解析|解析|正确答案)[：:\n\s]*/i, '').trim();
+            }
+        }
+
+        // 6. 提取答案
         const getAns = () => {
             const opts = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li'));
             const rights = opts
@@ -731,19 +695,11 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 .map(li => li.getAttribute('data-optname') || li.innerText.trim().charAt(0))
                 .filter(Boolean);
             if (rights.length > 0) return [...new Set(rights)].sort().join('');
-
-            const explicitSelectors = ['.right_answer', '#right_answer', '#answer_analysis', '.answer-yes', '.answer-wrong', '.analysis', '#analysis', '.correct-answer'];
-            for (const selector of explicitSelectors) {
-                const elements = Array.from(document.querySelectorAll(selector));
-                for (let i = elements.length - 1; i >= 0; i--) {
-                    if (isVisible(elements[i])) {
-                        const answer = extractLetters(elements[i].innerText);
-                        if (answer) return answer;
-                    }
-                }
-            }
-            return '未知';
+            if (extractedAnsFromAnalysis) return extractedAnsFromAnalysis;
+            return extractLetters(analysisRaw) || '未知';
         };
+
+        const finalAns = getAns();
 
         return {
             type: document.querySelector('#item_type, .item-type, .question-type')?.innerText.trim() || '题型',
@@ -752,19 +708,14 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             stem: stemText,
             title: titleText,
             options: optionsList,
-            answer: getAns(),
+            answer: finalAns,
             analysis: analysisText,
             images,
-            // 改进指纹：包含编号和题号，彻底解决共享题干题标题相同导致的“重复指纹”问题
-            fingerprint: (step + (document.querySelector('#item_id')?.innerText || '') + titleText.substring(0, 30) + optionsList.substring(0, 30)).replace(/\s/g, ''),
-            telemetry: analysisText === '无解析' ? JSON.stringify({ 
-                elements: telemetry, 
-                titleSample: titleText.substring(0, 30),
-                url: window.location.href 
-            }) : null
-            };
-            }, { enableDiscussionFallback, oldAnalysisFingerprint });
-            }
+            fingerprint: (step + (document.querySelector('#item_id')?.innerText || '') + titleText.substring(0, 30)).replace(/\s/g, ''),
+            analysisFingerprint: analysisRaw.replace(/\s/g, '').substring(0, 100)
+        };
+    }, { enableDiscussionFallback, oldAnalysisFingerprint });
+}
 
 /**
  * 章节初始化与精准定位
