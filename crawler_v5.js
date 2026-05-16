@@ -143,7 +143,7 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
                     el.style.display = 'block'; el.style.visibility = 'visible'; el.style.opacity = '1';
                 });
             });
-            const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn'];
+            const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.subject-submit', '#SubjectSubmit'];
             clickSelectors.forEach(s => document.querySelectorAll(s).forEach(el => {
                 if (el.offsetParent !== null || el.innerText.includes('解析') || el.innerText.includes('答案')) el.click();
             }));
