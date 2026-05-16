@@ -161,7 +161,7 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
 async function clearCurrentAnalysis(page) {
     await page.evaluate(() => {
         // 清除所有可能的解析容器的内容，强制要求页面重新填入新内容
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content', '#item_answer', '.solution', '.jiexi-content'];
         anaSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => {
                 if (el) el.innerText = '等待刷新中...';
@@ -250,16 +250,21 @@ async function readQuestionData(page, staleState = {}) {
         // 2. 提取解析区域全文 (仅限可见容器)
         const anaSelectors = [
             '.analysis.pd10', '#answer_analysis .analysis', '#analysis .analysis', 
-            '.answer-content .analysis', '.jiexi-content', '.solution'
+            '.answer-content .analysis', '.jiexi-content', '.solution', '#analysis', '.analysis'
         ];
         
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
+                // 核心：必须是可见元素
                 if (isActuallyVisible(el)) {
+                    const raw = (el.innerText || '').trim();
+                    // 如果内容是我们的占位符，说明还没刷新，跳过
+                    if (raw.includes('等待刷新') || raw.includes('等待中')) continue;
+                    
                     const candidate = processContent(el, 'ans');
-                    if (candidate && candidate.length > 5 && !candidate.includes('点击查看解析') && !candidate.includes('等待刷新')) {
+                    if (candidate && candidate.length > 5 && !candidate.includes('点击查看解析')) {
                         fullAnaText = candidate;
                         break;
                     }
@@ -632,10 +637,10 @@ async function crawlSubject(page, subject) {
             let lastWrittenCurr = startFrom;
             while (true) {
                 await waitForQuestionReady(page);
+                
+                // 核心：如果这是刚加载或刚跳转，先等待一下确保自动触发的解析出来了
+                await page.waitForTimeout(1500);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-
-                // 核心：强制等待异步内容有时间渲染
-                await page.waitForTimeout(1000);
 
                 // 每次读取时都带着上一题的状态进入浏览器上下文
                 let data = await readQuestionData(page, {
@@ -644,13 +649,13 @@ async function crawlSubject(page, subject) {
                     oldTitleFingerprint: lastTitleFingerprint
                 });
 
-                // --- 核心加固：内容刷新校验 (针对自动化环境跑太快的问题) ---
+                // --- 核心加固：内容刷新校验 ---
                 if (data.resolvedFingerprint === lastResolvedFingerprint && data.resolvedFingerprint.length > 20) {
-                    log(`检测到内容与上一题雷同 (题号: ${data.step})，页面渲染残留中，正在重试...`, 'WARN');
+                    log(`检测到解析内容与前一题雷同 (题号: ${data.step})，尝试手动触发刷新...`, 'WARN');
                     let refreshSuccess = false;
-                    for (let retry = 0; retry < 5; retry++) {
-                        await page.waitForTimeout(1500); 
+                    for (let retry = 0; retry < 3; retry++) {
                         await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+                        await page.waitForTimeout(2000); 
                         data = await readQuestionData(page, {
                             oldAnalysisFingerprint: lastAnalysisFingerprint,
                             staleFingerprints: staleFingerprints,
@@ -661,24 +666,7 @@ async function crawlSubject(page, subject) {
                             break;
                         }
                     }
-                    if (!refreshSuccess) {
-                        log(`警告：该题解析内容可能确实与前一题一致。`, 'WARN');
-                    }
-                }
-
-                // 第一层补救：无解析或冲突拦截处理
-                if (data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') {
-                    await handlePopup(page);
-                    await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-                    await randomSleep(1200, 2200);
-                    const retried = await readQuestionData(page, {
-                        oldAnalysisFingerprint: lastAnalysisFingerprint,
-                        staleFingerprints: staleFingerprints,
-                        oldTitleFingerprint: lastTitleFingerprint
-                    });
-                    if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
-                        data = retried;
-                    }
+                    if (!refreshSuccess) log(`警告：重试 3 次后解析依然重复，将强行继续。`, 'WARN');
                 }
 
                 const [curr, totalNum] = data.step.split('/').map(Number);
@@ -698,21 +686,17 @@ async function crawlSubject(page, subject) {
                     lastFingerprint = data.fingerprint;
                 }
 
-                // 第二层补救：历史跨题重复检测 (保留历史背景逻辑)
+                // 历史跨题重复检测
                 const isRepeatedInHistory = data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
                 if (isRepeatedInHistory && data.titleFingerprint !== lastTitleFingerprint) {
                     log(`检测到跨题复用了历史答案/解析，正在重试当前题: ${data.step}`, 'WARN');
-                    await handlePopup(page);
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-                    await randomSleep(1500, 2500);
-                    const retried = await readQuestionData(page, {
+                    await randomSleep(2000, 3000);
+                    data = await readQuestionData(page, {
                         oldAnalysisFingerprint: lastAnalysisFingerprint,
                         staleFingerprints: staleFingerprints,
                         oldTitleFingerprint: lastTitleFingerprint
                     });
-                    if (!staleFingerprints.includes(retried.resolvedFingerprint)) {
-                        data = retried;
-                    }
                 }
 
                 if (curr <= startFrom) {
@@ -720,6 +704,7 @@ async function crawlSubject(page, subject) {
                     if (next && curr < totalNum) {
                         log(`跳过已抓取题号: ${curr}`, 'DEBUG');
                         const old = { step: data.step, id: data.itemId };
+                        await clearCurrentAnalysis(page); // 跳过之前也要清空
                         await next.click({ force: true });
                         await waitForQuestionChange(page, old.step, old.id, data.titleFingerprint);
                         await waitForQuestionReady(page);
@@ -737,6 +722,7 @@ async function crawlSubject(page, subject) {
                     if (next && curr < totalNum) {
                         log(`检测到重复题号 ${curr}，尝试前进到下一题`, 'WARN');
                         const old = { step: data.step, id: data.itemId };
+                        await clearCurrentAnalysis(page);
                         await next.click({ force: true });
                         await waitForQuestionChange(page, old.step, old.id, data.titleFingerprint);
                         await waitForQuestionReady(page);
@@ -752,7 +738,6 @@ async function crawlSubject(page, subject) {
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
                 lastResolvedFingerprint = data.resolvedFingerprint; 
-                // 更新历史指纹池
                 if (data.resolvedFingerprint && data.resolvedFingerprint.length > 30) {
                     if (!staleFingerprints.includes(data.resolvedFingerprint)) {
                         staleFingerprints.push(data.resolvedFingerprint);
@@ -774,6 +759,8 @@ async function crawlSubject(page, subject) {
                     const next = await page.$('.subject-next, #next_item');
                     if (next) {
                         const old = { step: data.step, id: data.itemId };
+                        // 重要：点击下一题前，清空当前解析区
+                        await clearCurrentAnalysis(page);
                         await next.click({ force: true });
                         await waitForQuestionChange(page, old.step, old.id, data.titleFingerprint);
                         await waitForQuestionReady(page);
