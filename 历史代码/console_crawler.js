@@ -47,6 +47,15 @@ async function startCrawling() {
     const processContent = (el) => {
         if (!el) return '';
         const clone = el.cloneNode(true);
+        
+        // 移除所有按钮、交互项及干扰文案
+        const junkSelectors = [
+            '.click_analysis', '.video_analysis', '.err_correct', '.remove_wrong', 
+            '.subject-action', '.analysis-action', 'button', 'a', 
+            '.show_child', '.fr', '.report-error'
+        ];
+        junkSelectors.forEach(s => clone.querySelectorAll(s).forEach(item => item.remove()));
+
         clone.querySelectorAll('img').forEach(img => {
             let src = img.getAttribute('src');
             if (src) {
@@ -54,34 +63,33 @@ async function startCrawling() {
                 img.replaceWith(` ![图](${src}) `);
             }
         });
-        return clone.innerText.trim();
+
+        let text = clone.innerText.trim();
+        // 过滤常见的干扰文本行
+        const junkTexts = [
+            /点击查看解析/g, /我要纠错/g, /从错题本移除/g, /视频解析/g, 
+            /查看视频/g, /听课/g, /收起解析/g, /展开解析/g
+        ];
+        junkTexts.forEach(re => text = text.replace(re, ''));
+        
+        return text.trim();
     };
 
     const fetchAnalysis = () => {
-        // 扩展选择器，优先查找显眼的解析区域，增加对简答题常见容器的支持
         const selectors = [
-            '.analysis.pd10', 
-            '#answer_analysis .analysis', 
-            '#analysis', 
-            '.analysis', 
-            '.answer-yes .analysis', 
-            '.answer-wrong .analysis',
-            '.item_analysis',
-            '#item_analysis'
+            '.analysis.pd10', '#answer_analysis .analysis', '#analysis', 
+            '.analysis', '.answer-yes .analysis', '.answer-wrong .analysis',
+            '.item_analysis', '#item_analysis'
         ];
         
         for (const s of selectors) {
             const el = document.querySelector(s);
             if (el) {
                 let t = processContent(el);
-                // 更加健壮的清洗：移除“参考解析：”等前缀，同时处理可能的空白符
+                // 仅切除前缀，保留后面的内容（即使是“无”）
                 t = t.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n]*\s*/i, '').trim();
                 
-                // 排除无效的占位内容
-                const invalidTexts = ['', '-', '无', '暂无解析', '无解析'];
-                if (t && !invalidTexts.includes(t)) {
-                    return t;
-                }
+                if (t.length > 0) return t;
             }
         }
         return '无解析';
