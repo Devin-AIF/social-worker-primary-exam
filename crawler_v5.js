@@ -403,87 +403,36 @@ async function ensureReciteMode(page) {
 async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     const trigger = async () => {
         await page.evaluate(() => {
-            const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
+            // 0. 移除干扰
+            document.querySelectorAll('.layui-layer-shade, .layui-layer, .layerSaveSuccess').forEach(el => el.remove());
             
-            // 0. 关键补救：先尝试关闭可能存在的旧弹窗，防止它遮挡新的触发按钮
-            document.querySelectorAll('.layui-layer-close, .layui-layer-btn1').forEach(el => el.click());
-
-            // 1. 检查解析是否已经完全展开且包含真实内容
-            const getVisibleAnalysis = () => {
-                const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution', '.answer-content'];
-                for (const s of sel) {
-                    const el = document.querySelector(s);
-                    // 只要有长文本且不是占位符，就认为可能已加载
-                    if (el && el.innerText.trim().length > 30 && !el.innerText.includes('点击查看解析')) return el;
-                }
-                return null;
-            };
-            
-            // 2. 触发各种可能的解析/答案按钮
-            const clickSelectors = [
-                '.click_analysis', 
-                '[data-type="analysis"]', 
-                '.analysis-btn', 
-                '.show-analysis', 
-                '.jiexi', 
-                '.answer-analysis',
-                '.btn-analysis',
-                '.show-answer',
-                '#show_answer_btn',
-                '.view-solution',
-                '.btn-answer',
-                '.view-answer',
-                '.subject-submit', // 问答题有时需要点击提交
-                '#SubjectSubmit'
-            ];
-            
-            for (const s of clickSelectors) {
-                const els = Array.from(document.querySelectorAll(s));
-                for (const el of els) {
-                    // 放宽可见性限制，有些按钮可能被透明遮罩覆盖
-                    if (isVisible(el) || el.innerText.includes('解析') || el.innerText.includes('答案')) { 
-                        el.click(); 
-                    }
-                }
-            }
-
-            // 3. 特征匹配点击
-            const textButtons = Array.from(document.querySelectorAll('a, button, span, div'))
-                .filter(el => {
-                    const t = (el.innerText || '').trim();
-                    return (t === '查看解析' || t === '解析' || t === '参考解析' || t === '答案解析' || t === '查看答案' || t === '参考答案' || t === '显示答案' || t === '查看') && isVisible(el);
+            // 1. 强制显示解析容器 (同步控制台逻辑)
+            const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
+            analysisSelectors.forEach(s => {
+                document.querySelectorAll(s).forEach(el => {
+                    el.style.display = 'block'; el.style.visibility = 'visible'; el.style.opacity = '1';
                 });
-            textButtons.forEach(el => el.click());
+            });
+
+            // 2. 模拟点击
+            const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn'];
+            clickSelectors.forEach(s => document.querySelectorAll(s).forEach(el => { if (el.style.display !== 'none') el.click(); }));
         });
     };
-
-    // 在触发解析前，先清理一次可能存在的频率限制遮罩
     await handlePopup(page);
     await trigger();
-    
-    // 为 Ajax 异步加载预留缓冲时间 (针对报告中的频率限制，稍微拉长一点)
     await page.waitForTimeout(2000);
-    
-    // 核心：动态等待解析内容真正出现在 DOM 中，且指纹发生了变化（代表内容已更新）
-    const success = await page.waitForFunction((oldFinger) => {
-        const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution'];
+    return await page.waitForFunction((oldFinger) => {
+        const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.analysis', '#analysis', '.jiexi-content', '.solution'];
         for (const s of sel) {
             const el = document.querySelector(s);
             if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) {
                 const currentFinger = el.innerText.trim().replace(/\s/g, '').substring(0, 100);
-                // 如果没有旧指纹，或者当前指纹与旧指纹不同，说明加载成功
                 if (!oldFinger || currentFinger !== oldFinger) return true;
             }
         }
         return false;
-    }, oldAnalysisFingerprint, { timeout: 5000 }).catch(() => false);
-
-    if (!success) {
-        log('解析未更新或加载缓慢，执行深度清理并二次触发...', 'DEBUG');
-        await handlePopup(page);
-        await trigger();
-        await page.waitForTimeout(3000);
-    }
+    }, oldAnalysisFingerprint, { timeout: 3000 }).catch(() => false);
 }
 
 /**
@@ -524,192 +473,93 @@ async function waitForQuestionChange(page, oldStep, oldItemId) {
  */
 async function readQuestionData(page, oldAnalysisFingerprint = '') {
     return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint }) => {
-        const isVisible = (el) => {
-            if (!el) return false;
-            const style = window.getComputedStyle(el);
-            return !!(el.offsetParent || el.getClientRects().length) && style.display !== 'none' && style.visibility !== 'hidden';
-        };
-
-        const extractLetters = (text) => {
-            if (!text) return '';
-            // 优化正则，支持“正确答案：A”、“答案 A”以及孤立的“A”
-            const match = text.match(/正确答案[^A-F]*([A-F、,，\s]+)/) || text.match(/答案[^A-F]*([A-F]+)/) || text.match(/[A-F]{1,6}/);
-            return match ? (match[1] || match[0]).replace(/[^A-F]/g, '') : '';
-        };
-
+        const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
         const images = [];
-        const getStep = () => {
-            const sel = ['#item_step', '.item-step', '.question-step', '.subject-step', '.step', '.step-num'];
-            for (const s of sel) {
-                const el = document.querySelector(s);
-                if (el && el.innerText.includes('/')) return el.innerText.trim();
-            }
-            return '0/0';
-        };
-        const step = getStep();
+        const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
 
-        // 核心：深度清洗并提取内容（源自 console_crawler.js 的 processContent 思想）
         const processContent = (el, prefix) => {
             if (!el) return '';
             const clone = el.cloneNode(true);
-            
-            // 1. 移除干扰元素
-            const junkSelectors = [
-                '.click_analysis', '.err_correct', '.remove_wrong', '.video_analysis', 
-                '.subject-type', '.subject-score', '.subject-order', '.subject-collect',
-                'button', '.btn', '.hidden', '.hide', '.item-step', '.analysis-lock',
-                '.analysis-ratelimit-tip', '.video-btn', '.layerSaveSuccess'
-            ];
-            junkSelectors.forEach(s => {
-                clone.querySelectorAll(s).forEach(sub => sub.remove());
-            });
-
-            // 2. 处理图片并本地化路径
-            const imgs = Array.from(clone.querySelectorAll('img'));
-            imgs.forEach((img, idx) => {
+            const junkSelectors = ['.click_analysis', '.err_correct', '.remove_wrong', '.video_analysis', '.subject-action', '.analysis-action', 'button', 'a', '.report-error'];
+            junkSelectors.forEach(s => clone.querySelectorAll(s).forEach(sub => sub.remove()));
+            clone.querySelectorAll('img').forEach((img, idx) => {
                 let src = img.getAttribute('src') || img.getAttribute('data-src') || img.src;
                 if (!src) return;
-                
-                // 处理协议补全
                 if (src.startsWith('//')) src = 'https:' + src;
-                
                 const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
                 images.push({ name, url: src });
-                
-                const span = document.createElement('span');
-                span.innerText = ` ![图](./images/${name}) `;
-                img.replaceWith(span);
+                img.replaceWith(` ![图](./images/${name}) `);
             });
-
             let text = clone.innerText.trim();
-            
-            // 3. 正则清洗干扰文案
-            const junkPatterns = [
-                /点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, 
-                /提交/g, /试题讨论/g, /发表讨论/g, /上一题/g, /下一题/g, /保存进度并退出/g,
-                /\[视频解析\]/g, /\[查看解析\]/g
-            ];
-            junkPatterns.forEach(p => {
-                text = text.replace(p, '');
-            });
-
+            const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g];
+            junkPatterns.forEach(p => text = text.replace(p, ''));
             return text.trim();
         };
 
-        // 1. 提取题目
-        const stemEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title');
+        const titleEl = document.querySelector('#item_title, .item-title, .subject-title');
         const subTitleEl = document.querySelector('.subject-sub-title, .question-sub-title');
-        
-        let stemText = processContent(stemEl, 'stem');
+        let stemText = processContent(titleEl, 'stem');
         let titleText = processContent(subTitleEl, 'tit');
-        if (!titleText) {
-            titleText = stemText;
-            stemText = '';
-        }
+        if (!titleText) { titleText = stemText; stemText = ''; }
 
-        // 2. 提取选项
-        const optionEls = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li')).filter(isVisible);
-        const optionsList = optionEls.map((li, idx) => processContent(li, `opt${idx}`)).join('\n');
-
-        // 3. 提取官方解析
-        let analysisRaw = '无解析';
-        const analysisSelectors = [
-            '.analysis.pd10', 
-            '#answer_analysis .analysis', 
-            '.answer-yes .analysis', 
-            '.answer-wrong .analysis', 
-            '.analysis', 
-            '#analysis',
-            '.tiku-analysis',
-            '.answer-detail',
-            '#answer_analysis_detail',
-            '.jiexi-content',
-            '.solution',
-            '.answer-content'
-        ];
-        
-        const fallbackSelectors = ['.subject-answer', '.question-answer', '#answer'];
-
-        const trySelect = (selectors, checkVisibility = true) => {
+        const fetchOptions = () => {
+            const selectors = ['#item_options li', '.options li', '.question-options li', '.subject-option li'];
             for (const s of selectors) {
-                const elements = Array.from(document.querySelectorAll(s));
-                for (let i = elements.length - 1; i >= 0; i--) {
-                    const el = elements[i];
-                    if (!checkVisibility || isVisible(el) || (el.innerText.trim().length > 20 && !el.innerText.includes('点击查看解析'))) {
-                        let content = processContent(el, 'ans');
-                        if (!content || content.length < 5) continue;
-
-                        // 指纹去重
-                        const finger = content.replace(/\s/g, '').substring(0, 100);
-                        if (oldAnalysisFingerprint && finger === oldAnalysisFingerprint) continue;
-
-                        return content;
-                    }
-                }
+                const items = document.querySelectorAll(s);
+                if (items.length > 0) return Array.from(items).map((li, idx) => processContent(li, `opt${idx}`)).join('\n');
             }
-            return null;
+            return '';
         };
+        const optionsList = fetchOptions();
 
-        analysisRaw = trySelect(analysisSelectors, false) || trySelect(fallbackSelectors, true) || '无解析';
-
-        // 4. 讨论区后备
-        if (analysisRaw === '无解析' && ENABLE_DISCUSSION_FALLBACK) {
-            const talks = Array.from(document.querySelectorAll('.tiku-talk-list li, .question-talk-list li, .talk-list li'));
-            for (let i = 0; i < talks.length; i++) {
-                const isTeacher = talks[i].querySelector('.terd') || talks[i].innerText.includes('老师') || talks[i].innerText.includes('欣师');
-                if (isTeacher || (talks.length === 1 && talks[i].innerText.length > 10)) {
-                    const mEl = talks[i].querySelector('.huida .mesage, .message, .mesage');
-                    if (mEl) {
-                        const talkText = processContent(mEl, 'talk');
-                        if (talkText.length > 5) {
-                            analysisRaw = `[讨论提取] ${talkText}`;
-                            break;
-                        }
-                    }
-                }
+        let finalAnswer = '未知';
+        let finalAnalysis = '无解析';
+        const ansSelectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
+        for (const s of ansSelectors) {
+            const el = document.querySelector(s);
+            if (el && isVisible(el)) {
+                let t = el.innerText.replace(/^(正确答案|答案)[：:\s]*/, '').trim();
+                if (t && t.length < 10) { finalAnswer = t; break; }
             }
         }
-
-        // 5. 智能拆分解析与答案
-        let analysisText = analysisRaw;
-        let extractedAnsFromAnalysis = '';
-        if (analysisRaw !== '无解析') {
-            const parts = analysisRaw.split(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
-            if (parts.length >= 3) {
-                extractedAnsFromAnalysis = extractLetters(parts[0]);
-                analysisText = parts.slice(2).join('').trim();
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.jiexi-content', '.solution'];
+        let fullAnaText = '';
+        for (const s of anaSelectors) {
+            const el = document.querySelector(s);
+            if (el && isVisible(el)) {
+                fullAnaText = processContent(el, 'ans');
+                if (fullAnaText.length > 10) break;
+            }
+        }
+        if (fullAnaText) {
+            if (finalAnswer === '未知' && /(参考答案|正确答案)[：:\n]/.test(fullAnaText)) {
+                const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
+                if (anaMatch) {
+                    const parts = fullAnaText.split(anaMatch[0]);
+                    finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnalysis = parts.slice(1).join(anaMatch[0]).trim();
+                } else {
+                    finalAnswer = fullAnaText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnalysis = '无';
+                }
             } else {
-                extractedAnsFromAnalysis = extractLetters(analysisRaw);
-                analysisText = analysisRaw.replace(/^(参考解析|答案解析|参考答案|本题解析|解析|正确答案)[：:\n\s]*/i, '').trim();
+                finalAnalysis = fullAnaText.replace(/^(参考解析|答案解析|解析)[：:\n\s]*/i, '').trim();
+                if (finalAnalysis === '') finalAnalysis = fullAnaText;
             }
         }
 
-        // 6. 提取答案
-        const getAns = () => {
-            const opts = Array.from(document.querySelectorAll('#item_options li, .options li, .question-options li'));
-            const rights = opts
-                .filter(li => isVisible(li) && (li.getAttribute('data-isanswer') === '1' || li.classList.contains('correct') || li.classList.contains('right') || !!li.querySelector('.right_icon') || li.querySelector('.correct_icon')))
-                .map(li => li.getAttribute('data-optname') || li.innerText.trim().charAt(0))
-                .filter(Boolean);
-            if (rights.length > 0) return [...new Set(rights)].sort().join('');
-            if (extractedAnsFromAnalysis) return extractedAnsFromAnalysis;
-            return extractLetters(analysisRaw) || '未知';
-        };
-
-        const finalAns = getAns();
+        const titleFinger = titleText.replace(/\s/g, '');
+        if (finalAnalysis.replace(/\s/g, '').includes(titleFinger) && finalAnalysis.length < titleText.length + 50) {
+            finalAnalysis = '无解析 (抓取冲突已拦截)';
+        }
 
         return {
-            type: document.querySelector('#item_type, .item-type, .question-type')?.innerText.trim() || '题型',
-            step,
-            itemId: document.querySelector('#item_id')?.innerText.trim() || '',
-            stem: stemText,
-            title: titleText,
-            options: optionsList,
-            answer: finalAns,
-            analysis: analysisText,
-            images,
-            fingerprint: (step + (document.querySelector('#item_id')?.innerText || '') + titleText.substring(0, 30)).replace(/\s/g, ''),
-            analysisFingerprint: analysisRaw.replace(/\s/g, '').substring(0, 100)
+            type: document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型',
+            step, itemId: document.querySelector('#item_id')?.innerText.trim() || '',
+            stem: stemText, title: titleText, options: optionsList,
+            answer: finalAnswer, analysis: finalAnalysis, images,
+            fingerprint: (step + titleText.substring(0, 30)).replace(/\s/g, ''),
+            analysisFingerprint: fullAnaText.replace(/\s/g, '').substring(0, 100)
         };
     }, { ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint });
 }
