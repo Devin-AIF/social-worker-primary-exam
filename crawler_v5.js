@@ -206,48 +206,34 @@ async function readQuestionData(page, staleState = {}) {
             if (!value) return true;
             if (isPlaceholderAnswer(value)) return true;
             if (value.includes('试题讨论') || value.includes('点击查看更多') || value.includes('没有更多了')) return true;
-            if (value.includes('问答题') || value.includes('单选题') || value.includes('多选题') || value.includes('案例题')) return true;
-            if (value.includes('答：') || value.includes('答案及')) return true;
-            if (hasStepPattern(value)) return true;
+            // 问答题的解析里确实可能包含这些词，所以只对极其简短且只包含题型词的情况进行过滤
+            if (value.length < 15 && (value.includes('问答题') || value.includes('单选题') || value.includes('多选题') || value.includes('案例题'))) return true;
+            if (hasStepPattern(value) && value.length < 20) return true;
             return false;
         };
 
-        // 即使节点里混进了 UI 文案，有时候主体答案仍然是有价值的。
-        // 所以先尽量裁掉答题区尾巴、讨论区尾巴、题号分页等噪声，再决定要不要丢弃。
         const stripUiJunk = (text) => {
             let value = (text || '').trim();
             value = value.replace(/试题讨论[\s\S]*$/g, '').trim();
             value = value.replace(/点击查看更多↓?/g, '').replace(/没有更多了/g, '').trim();
-            value = value.replace(/^\s*(问答题|单选题|多选题|案例题)\s*/g, '').trim();
             value = value.replace(/^\s*\d+\s*\/\s*\d+\s*/g, '').trim();
-            value = value.replace(/\n?\s*答：\s*$/g, '').trim();
             return value;
         };
 
-        // 判断一个候选文本是否“很像历史残留内容”。
-        // 这里同时对比上一题解析指纹和历史指纹池，防止两种串题：
-        // 1. 解析区没刷新，直接沿用上一题解析
-        // 2. 解析由于某种原因复现了数题之前的缓存内容
         const isProbablyStale = (fingerprint) => {
             if (!fingerprint || fingerprint.length < 10) return false;
             
-            // 豁免逻辑：如果是共享题干的案例题，或者题干前50个字符与上一题一致，说明它们是同一个大题的子题目，共享解析是合理的。
             const isSharedCase = itemType.includes('共享题干') || (oldTitleFingerprint && titleFingerprint && oldTitleFingerprint.substring(0, 50) === titleFingerprint.substring(0, 50));
             if (isSharedCase) return false;
 
             const current = String(fingerprint);
-            
-            // 基础检查：对比上一题解析区
             if (oldAnalysisFingerprint && current === oldAnalysisFingerprint) return true;
 
-            // 深度检查：对比历史成功指纹池（仅对有一定长度的主观内容生效，避免误伤简单的客观题答案）
-            if (current.length > 30 && Array.isArray(staleFingerprints)) {
+            if (current.length > 50 && Array.isArray(staleFingerprints)) {
                 return staleFingerprints.some(stale => {
                     const s = String(stale);
-                    if (s.length < 30) return false;
-                    if (current === s) return true;
-                    if (current.length > 50 && s.length > 50 && (current.includes(s) || s.includes(current))) return true;
-                    return false;
+                    // 只有完全一致才判定为串题，避免 includes 导致的误伤（主观题解析容易部分重合）
+                    return current === s;
                 });
             }
             return false;
@@ -310,7 +296,7 @@ async function readQuestionData(page, staleState = {}) {
 
         // 解析容器按“更像真实解析”的优先级排列。
         // 注意这里故意保留了一些宽松兜底选择器，因为不同章节/题型的 DOM 结构并不统一。
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer', '.subject-analysis', '.subject-answer-box'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const elements = Array.from(document.querySelectorAll(s));
