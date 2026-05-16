@@ -135,6 +135,12 @@ async function safeClick(page, selector, waitAfter = 0) {
 async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     const trigger = async () => {
         await page.evaluate(() => {
+            // 在触发前，物理清理所有已知的解析容器，从根本上防止旧内容残留
+            const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
+            sel.forEach(s => document.querySelectorAll(s).forEach(el => {
+                if (el) el.innerHTML = '<div style="color:#ccc">--- [CRAWLER: WAITING FOR NEW DATA] ---</div>';
+            }));
+
             document.querySelectorAll('.layui-layer-shade, .layui-layer, .layerSaveSuccess, .layui-layer-close').forEach(el => el.remove());
             const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
             analysisSelectors.forEach(s => {
@@ -169,8 +175,8 @@ async function readQuestionData(page, staleState = {}) {
         const {
             // 上一题解析区域的指纹。用于识别“当前题页面里还残留着上一题解析”的情况。
             oldAnalysisFingerprint = '',
-            // 上一题最终写入的“答案+解析”联合指纹。用于识别整块答案区被跨题复用的情况。
-            oldResolvedFingerprint = '',
+            // 历史解析指纹列表（主观题核心拦截逻辑）。用于识别当前解析是否雷同于本章节内最近几次成功抓取的解析。
+            staleFingerprints = [],
             // 上一题题干指纹。用于识别当前抓到的内容其实还指向上一题题干。
             oldTitleFingerprint = ''
         } = staleState || {};
@@ -188,7 +194,7 @@ async function readQuestionData(page, staleState = {}) {
 
         // 某些题目的“答案区”只会给一个占位词，而不是实际答案。
         // 这些词一旦被当真写进 markdown，后续就很难再自动修复，所以在入口处直接判掉。
-        const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析)$/i.test((text || '').trim());
+        const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析|--- \[CRAWLER:.*)$/i.test((text || '').trim());
         const normalizeFingerprint = (text, limit = 160) => (text || '').replace(/\s/g, '').substring(0, limit);
         const hasStepPattern = (text) => /\b\d+\s*\/\s*\d+\b/.test(text || '');
 
@@ -217,19 +223,28 @@ async function readQuestionData(page, staleState = {}) {
             return value;
         };
 
-        // 判断一个候选文本是否“很像上一题残留内容”。
-        // 这里同时对比上一题解析指纹和上一题完整答案+解析指纹，防止两种串题：
+        // 判断一个候选文本是否“很像历史残留内容”。
+        // 这里同时对比上一题解析指纹和历史指纹池，防止两种串题：
         // 1. 解析区没刷新，直接沿用上一题解析
-        // 2. 整块答案区没刷新，连“答案+解析”一起沿用
+        // 2. 解析由于某种原因复现了数题之前的缓存内容
         const isProbablyStale = (fingerprint) => {
-            if (!fingerprint) return false;
+            if (!fingerprint || fingerprint.length < 10) return false;
             const current = String(fingerprint);
-            const staleList = [oldAnalysisFingerprint, oldResolvedFingerprint].filter(Boolean).map(v => String(v));
-            return staleList.some(stale => {
-                if (current === stale) return true;
-                if (current.length > 40 && stale.length > 40 && (current.includes(stale) || stale.includes(current))) return true;
-                return false;
-            });
+            
+            // 基础检查：对比上一题解析区
+            if (oldAnalysisFingerprint && current === oldAnalysisFingerprint) return true;
+
+            // 深度检查：对比历史成功指纹池（仅对有一定长度的主观内容生效，避免误伤简单的客观题答案）
+            if (current.length > 30 && Array.isArray(staleFingerprints)) {
+                return staleFingerprints.some(stale => {
+                    const s = String(stale);
+                    if (s.length < 30) return false;
+                    if (current === s) return true;
+                    if (current.length > 50 && s.length > 50 && (current.includes(s) || s.includes(current))) return true;
+                    return false;
+                });
+            }
+            return false;
         };
 
         const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
@@ -713,9 +728,8 @@ async function crawlSubject(page, subject) {
             let lastAnalysisFingerprint = '';
             let lastStem = '';
             let lastFingerprint = '';
-            // 上一题完整“答案+解析”指纹。
-            // 用于发现当前题虽然题干变了，但答案和解析整块没变的串题问题。
-            let lastResolvedFingerprint = '';
+            // 历史成功指纹池，用于识别多题之前的旧内容残留。
+            let staleFingerprints = [];
             // 上一题题干指纹。用于辅助识别“当前候选内容其实还在引用上一题题干”的情况。
             let lastTitleFingerprint = '';
             let stuckCount = 0;
@@ -727,7 +741,7 @@ async function crawlSubject(page, subject) {
                 // 每次读取时都带着上一题的状态进入浏览器上下文，让页面内提取逻辑有能力识别“旧内容残留”。
                 let data = await readQuestionData(page, {
                     oldAnalysisFingerprint: lastAnalysisFingerprint,
-                    oldResolvedFingerprint: lastResolvedFingerprint,
+                    staleFingerprints: staleFingerprints,
                     oldTitleFingerprint: lastTitleFingerprint
                 });
 
@@ -739,7 +753,7 @@ async function crawlSubject(page, subject) {
                     await randomSleep(1200, 2200);
                     const retried = await readQuestionData(page, {
                         oldAnalysisFingerprint: lastAnalysisFingerprint,
-                        oldResolvedFingerprint: lastResolvedFingerprint,
+                        staleFingerprints: staleFingerprints,
                         oldTitleFingerprint: lastTitleFingerprint
                     });
                     if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
@@ -764,19 +778,20 @@ async function crawlSubject(page, subject) {
                 }
 
                 // 第二层补救：
-                // 题干已经变了，但“答案+解析”整块内容和上一题完全一样，基本可以断定发生了串题。
+                // 题干已经变了，但“答案+解析”整块内容雷同于历史记录，基本可以断定发生了串题。
                 // 这时不直接落盘，而是原地再触发一次重新读。
-                if (lastResolvedFingerprint && data.resolvedFingerprint === lastResolvedFingerprint && data.titleFingerprint !== lastTitleFingerprint) {
-                    log(`检测到跨题复用了上一题答案/解析，正在重试当前题: ${data.step}`, 'WARN');
+                const isRepeatedInHistory = data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
+                if (isRepeatedInHistory && data.titleFingerprint !== lastTitleFingerprint) {
+                    log(`检测到跨题复用了历史答案/解析，正在重试当前题: ${data.step}`, 'WARN');
                     await handlePopup(page);
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                     await randomSleep(1500, 2500);
                     const retried = await readQuestionData(page, {
                         oldAnalysisFingerprint: lastAnalysisFingerprint,
-                        oldResolvedFingerprint: lastResolvedFingerprint,
+                        staleFingerprints: staleFingerprints,
                         oldTitleFingerprint: lastTitleFingerprint
                     });
-                    if (retried.resolvedFingerprint !== lastResolvedFingerprint) {
+                    if (!staleFingerprints.includes(retried.resolvedFingerprint)) {
                         data = retried;
                     }
                 }
@@ -818,7 +833,13 @@ async function crawlSubject(page, subject) {
                 fs.appendFileSync(outputFile, md);
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
-                lastResolvedFingerprint = data.resolvedFingerprint;
+                // 更新历史指纹池：仅记录有意义的长指纹，且维持最近3个。
+                if (data.resolvedFingerprint && data.resolvedFingerprint.length > 30) {
+                    if (!staleFingerprints.includes(data.resolvedFingerprint)) {
+                        staleFingerprints.push(data.resolvedFingerprint);
+                        if (staleFingerprints.length > 3) staleFingerprints.shift();
+                    }
+                }
                 lastTitleFingerprint = data.titleFingerprint;
                 lastWrittenCurr = curr;
                 MONITOR.stats.totalCaptured++;
