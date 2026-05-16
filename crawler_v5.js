@@ -339,9 +339,6 @@ async function handlePopup(page) {
         } catch(e) {}
     });
 }
-        } catch (e) {}
-    });
-}
 
 /**
  * 全量恢复：安全点击封装
