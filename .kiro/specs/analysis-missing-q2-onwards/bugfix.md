@@ -4,7 +4,13 @@
 
 In `crawler_v5.js`, when crawling a 2024 exam paper chapter (e.g. chapter id 14658), the first question (Q1) has its analysis ("解析") captured correctly, but every subsequent question (Q2–Q5) is recorded as "无解析" (no analysis). The same crawler works correctly for 2025 exam papers.
 
-The root cause is that Q1's `resolvedFingerprint` — a long string (> 30 chars) built from its answer and analysis text — is pushed into the `staleFingerprints` pool after Q1 is written. When Q2 loads, the 2024 site's DOM still shows Q1's analysis text in the analysis node while Q2's content is loading. `isProbablyStale()` finds Q1's fingerprint in the pool, correctly identifies the DOM content as stale, and discards it. However, no subsequent retry successfully loads Q2's actual analysis before the question is written, so Q2–Q5 are all saved with "无解析". The 2025 site clears the analysis DOM between questions, so the stale check never fires there.
+The root cause is a fingerprint format mismatch combined with an insufficient retry window:
+
+1. After Q1 is written, its `resolvedFingerprint` (format: `"未知|参考答案：..."`, up to 160 chars) is pushed into the `staleFingerprints` pool.
+2. When Q2 loads, the 2024 site's DOM still shows Q1's analysis text in the analysis node. `readQuestionData` computes a 100-char raw-text fingerprint from that DOM node and passes it to `isProbablyStale()`.
+3. `isProbablyStale()` compares the 100-char DOM fingerprint against each entry in `staleFingerprints`. Because the stale pool entry is `"未知|<analysis text>"` (160 chars) and the DOM fingerprint is just `"<analysis text>"` (100 chars), the check `s.includes(current)` is true — the pool entry *contains* the DOM fingerprint as a substring. The content is correctly identified as stale and discarded.
+4. However, the retry window is too short for the 2024 site to replace Q1's lingering analysis with Q2's actual content. `triggerOfficialAnalysis` polls for `currentFinger !== oldFinger` (where `oldFinger` is the 100-char raw text fingerprint), but since the DOM still shows Q1's text, the poll returns `false` and the retry reads the same stale DOM again. Q2–Q5 are all saved as "无解析".
+5. The 2025 site clears the analysis DOM between questions, so the stale check never fires there.
 
 ---
 
@@ -14,9 +20,11 @@ The root cause is that Q1's `resolvedFingerprint` — a long string (> 30 chars)
 
 1.1 WHEN the crawler navigates from Q1 to Q2 (and onwards) in a 2024 exam paper chapter AND the 2024 site's DOM still shows Q1's analysis text while Q2's analysis is loading THEN the system discards the DOM content as stale and records the analysis as "无解析"
 
-1.2 WHEN Q1's `resolvedFingerprint` (length > 30) is added to `staleFingerprints` AND a subsequent question's analysis DOM node contains text that matches or is included in that fingerprint THEN the system treats the content as a cross-question contamination and rejects it, even if it is the current question's own valid analysis
+1.2 WHEN Q1's `resolvedFingerprint` (format `"answer|analysis"`, up to 160 chars) is in `staleFingerprints` AND the analysis DOM node's 100-char raw-text fingerprint is a substring of that pool entry THEN `isProbablyStale()` returns `true` via the `s.includes(current)` branch, causing the content to be rejected even though it may be the current question's own valid analysis
 
-1.3 WHEN the first-layer retry in `crawlSubject` re-triggers `triggerOfficialAnalysis` with `lastAnalysisFingerprint` (Q1's fingerprint) as the `oldAnalysisFingerprint` argument THEN `isProbablyStale()` still rejects Q1's lingering text, and no fresh analysis content is loaded within the retry window, leaving the analysis as "无解析"
+1.3 WHEN the first-layer retry in `crawlSubject` re-triggers `triggerOfficialAnalysis` with `lastAnalysisFingerprint` (the 100-char raw DOM fingerprint from Q1) as `oldAnalysisFingerprint` THEN the poll inside `triggerOfficialAnalysis` waits for `currentFinger !== oldFinger`, but since the 2024 site has not yet updated the DOM, `currentFinger` still equals `oldFinger`, the poll times out returning `false`, and the subsequent `readQuestionData` call reads the same stale DOM — still producing "无解析"
+
+1.4 WHEN the second-layer retry in `crawlSubject` checks `isRepeatedInHistory` THEN it compares `data.resolvedFingerprint` (160-char `"未知|无解析"`) against `staleFingerprints`, which does not match Q1's fingerprint, so the second-layer retry is never triggered for Q2–Q5
 
 ### Expected Behavior (Correct)
 
@@ -38,7 +46,9 @@ The root cause is that Q1's `resolvedFingerprint` — a long string (> 30 chars)
 
 3.4 WHEN shared-case (共享题干) questions are processed THEN the system SHALL CONTINUE TO apply the existing exemption logic that allows shared analyses across sub-questions
 
-3.5 WHEN `isProbablyStale()` detects cross-question contamination for a question whose title fingerprint has already changed THEN the system SHALL CONTINUE TO trigger the existing second-layer retry in `crawlSubject`
+3.5 WHEN `isProbablyStale()` detects cross-question contamination for a question whose `resolvedFingerprint` is already in `staleFingerprints` THEN the system SHALL CONTINUE TO trigger the existing second-layer retry in `crawlSubject`
+
+3.6 WHEN the `staleFingerprints` pool grows beyond 3 entries THEN the system SHALL CONTINUE TO evict the oldest entry (FIFO), keeping the pool size at most 3
 
 ---
 
@@ -47,18 +57,21 @@ The root cause is that Q1's `resolvedFingerprint` — a long string (> 30 chars)
 ```pascal
 FUNCTION isBugCondition(X)
   INPUT: X of type QuestionReadAttempt
-         X.domAnalysisText    — raw text found in the analysis DOM node
-         X.staleFingerprints  — pool of previously-captured resolvedFingerprints
-         X.currentQuestion    — question index (1-based)
+         X.domAnalysisRawText    — raw text found in the analysis DOM node (before fingerprinting)
+         X.staleFingerprints     — pool of previously-captured resolvedFingerprints
+                                   (format: "answer|analysis", up to 160 chars each)
+         X.currentQuestion       — question index (1-based)
   OUTPUT: boolean
 
   // Bug fires when:
   //   (a) we are past Q1 (stale pool is non-empty), AND
   //   (b) the DOM still shows a previous question's analysis text, AND
-  //   (c) the retry window is too short to load the real content
+  //   (c) isProbablyStale() rejects it via the s.includes(current) substring match, AND
+  //   (d) the retry window is too short to load the real content
+  domFingerprint ← X.domAnalysisRawText.replace(/\s/g, '').substring(0, 100)
   IF X.currentQuestion > 1
      AND X.staleFingerprints is non-empty
-     AND isProbablyStale(normalizeFingerprint(X.domAnalysisText), X.staleFingerprints) = true
+     AND EXISTS s IN X.staleFingerprints WHERE s.includes(domFingerprint)
   THEN
     RETURN true
   END IF
