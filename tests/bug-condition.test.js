@@ -111,11 +111,10 @@ function detectRetryLoopInSource(source) {
  * Fixed: { timeout: 15000 }
  */
 function detectExtendedTimeout(source) {
-    // Find the waitForFunction call inside triggerOfficialAnalysis
-    // Look for timeout: 15000 (fixed) vs timeout: 6000 (unfixed)
-    const timeoutMatch = source.match(/waitForFunction[\s\S]{0,500}timeout:\s*(\d+)/);
-    if (!timeoutMatch) return false;
-    return parseInt(timeoutMatch[1], 10) >= 15000;
+    // Find the triggerOfficialAnalysis function body and check its waitForFunction timeout
+    const fnMatch = source.match(/async function triggerOfficialAnalysis[\s\S]{0,2000}?timeout:\s*(\d+)/);
+    if (!fnMatch) return false;
+    return parseInt(fnMatch[1], 10) >= 15000;
 }
 
 /**

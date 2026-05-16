@@ -50,7 +50,7 @@
     - _Preservation: 2025 papers unaffected (DOM clears immediately, poll resolves quickly); Q1 unaffected (empty stale pool, `oldAnalysisFingerprint = ''`); genuine no-analysis fallback unaffected (poll still returns `false` after 15s if no content loads)_
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-  - [-] 3.2 Change 2 — Replace single first-layer retry with a loop of up to 3 attempts in `crawlSubject`
+  - [x] 3.2 Change 2 — Replace single first-layer retry with a loop of up to 3 attempts in `crawlSubject`
     - In `crawler_v5.js`, locate the first-layer retry block in `crawlSubject` (around line 780): the `if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint)` block
     - Replace the single retry (one `triggerOfficialAnalysis` call + `randomSleep(1200, 2200)` + one `readQuestionData`) with a loop of up to 3 attempts
     - Use increasing delays: attempt 0 → `randomSleep(2000, 3000)`, attempt 1 → `randomSleep(4000, 5000)`, attempt 2 → `randomSleep(6000, 7000)`
@@ -62,7 +62,7 @@
     - _Preservation: loop only activates when `data.analysis === '无解析'` AND `lastAnalysisFingerprint` is set; Q1 and 2025 papers never enter this branch under normal conditions; genuine no-analysis fallback preserved after all 3 attempts fail_
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3_
 
-  - [ ] 3.3 Change 3 (Optional) — Strip `"answer|"` prefix when pushing to `staleFingerprints`
+  - [x] 3.3 Change 3 (Optional) — Strip `"answer|"` prefix when pushing to `staleFingerprints`
     - In `crawler_v5.js`, locate the block that pushes to `staleFingerprints` after writing a question (around line 870)
     - Before pushing `data.resolvedFingerprint`, strip the answer prefix: `const analysisOnlyFingerprint = data.resolvedFingerprint.replace(/^[^|]*\|/, '')`
     - Use `analysisOnlyFingerprint` for the length check (`> 30`), deduplication check, and the push
@@ -73,7 +73,7 @@
     - _Preservation: FIFO eviction logic (max 3 entries) unchanged; deduplication check unchanged; 30-char threshold unchanged_
     - _Requirements: 2.2, 3.5, 3.6_
 
-  - [ ] 3.4 Verify bug condition exploration test now passes
+  - [-] 3.4 Verify bug condition exploration test now passes
     - **Property 1: Expected Behavior** - Stale DOM Triggers Wait-and-Retry, Not Immediate "无解析"
     - **IMPORTANT**: Re-run the SAME test from task 1 — do NOT write a new test
     - The test from task 1 encodes the expected behavior: when `isBugCondition(X)` is true, the fixed crawler waits for DOM update and only records "无解析" after all retries are genuinely exhausted

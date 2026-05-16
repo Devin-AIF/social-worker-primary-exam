@@ -863,9 +863,11 @@ async function crawlSubject(page, subject) {
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
                 // 更新历史指纹池：仅记录有意义的长指纹，且维持最近3个。
-                if (data.resolvedFingerprint && data.resolvedFingerprint.length > 30) {
-                    if (!staleFingerprints.includes(data.resolvedFingerprint)) {
-                        staleFingerprints.push(data.resolvedFingerprint);
+                // 去掉 "answer|" 前缀，只存解析部分，避免 isProbablyStale 的 s.includes(current) 误判。
+                const analysisOnlyFingerprint = data.resolvedFingerprint.replace(/^[^|]*\|/, '');
+                if (analysisOnlyFingerprint && analysisOnlyFingerprint.length > 30) {
+                    if (!staleFingerprints.includes(analysisOnlyFingerprint)) {
+                        staleFingerprints.push(analysisOnlyFingerprint);
                         if (staleFingerprints.length > 3) staleFingerprints.shift();
                     }
                 }
