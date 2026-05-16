@@ -22,16 +22,24 @@ async function startCrawling() {
 
     // 移除各类遮罩层，强行显示被隐藏的元素
     const removeOverlays = () => {
-        try { localStorage.clear(); sessionStorage.clear(); } catch(e){} // 顺手清理限流缓存
+        try { localStorage.clear(); sessionStorage.clear(); } catch(e){} 
         document.querySelectorAll('.hide').forEach(el => el.classList.remove('hide'));
+        
+        // 强制显示所有可能的解析容器，有些题目解析默认是 display: none 的
+        const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer'];
+        analysisSelectors.forEach(s => {
+            document.querySelectorAll(s).forEach(el => {
+                el.style.display = 'block';
+                el.style.visibility = 'visible';
+                el.style.opacity = '1';
+            });
+        });
+
         document.querySelectorAll('[style*="display: none"]').forEach(el => {
             if (el.id !== 'item_star' && el.className !== 'show_child fr') {
                 el.style.display = 'block';
             }
         });
-        
-        const analysisBox = document.querySelector('#analysis, .analysis, #answer_analysis');
-        if (analysisBox) analysisBox.style.display = 'block';
     };
 
     // 彻底适配背题模式：不再模拟点击选项，直接读取页面已有的答案和解析
@@ -50,13 +58,30 @@ async function startCrawling() {
     };
 
     const fetchAnalysis = () => {
-        const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
+        // 扩展选择器，优先查找显眼的解析区域，增加对简答题常见容器的支持
+        const selectors = [
+            '.analysis.pd10', 
+            '#answer_analysis .analysis', 
+            '#analysis', 
+            '.analysis', 
+            '.answer-yes .analysis', 
+            '.answer-wrong .analysis',
+            '.item_analysis',
+            '#item_analysis'
+        ];
+        
         for (const s of selectors) {
             const el = document.querySelector(s);
-            if (el && el.innerText.trim().length > 0) {
+            if (el) {
                 let t = processContent(el);
-                t = t.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
-                if (t && t !== '-') return t;
+                // 更加健壮的清洗：移除“参考解析：”等前缀，同时处理可能的空白符
+                t = t.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n]*\s*/i, '').trim();
+                
+                // 排除无效的占位内容
+                const invalidTexts = ['', '-', '无', '暂无解析', '无解析'];
+                if (t && !invalidTexts.includes(t)) {
+                    return t;
+                }
             }
         }
         return '无解析';
