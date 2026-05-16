@@ -166,6 +166,17 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
 
 async function readQuestionData(page, oldAnalysisFingerprint = '') {
     return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint }) => {
+        const isVisible = (el) => {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            return !!(el.offsetParent || el.getClientRects().length) && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+
+        const extractLetters = (text) => {
+            const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/) || (text || '').match(/答案[^A-F]*([A-F]+)/);
+            return match ? match[1].replace(/[^A-F]/g, '') : '';
+        };
+
         const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
         const images = [];
 
@@ -210,27 +221,37 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             return '';
         };
         const optionsList = fetchOptions();
+        const titleFingerprint = (titleText + stemText).replace(/\s/g, '');
 
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
 
-        const ansSelectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
-        for (const s of ansSelectors) {
-            const el = document.querySelector(s);
-            if (el) {
-                let t = el.innerText.replace(/^(正确答案|答案)[：:\s]*/, '').trim();
-                if (t) { finalAnswer = t; break; }
-            }
-        }
-
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
-            const el = document.querySelector(s);
-            if (el) {
-                fullAnaText = processContent(el, 'ans');
-                if (fullAnaText.length > 5) break;
+            const elements = Array.from(document.querySelectorAll(s));
+            for (let i = elements.length - 1; i >= 0; i--) {
+                const el = elements[i];
+                const rawText = (el.innerText || el.textContent || '').trim();
+                if (!rawText || rawText.length < 5 || rawText.includes('点击查看解析')) continue;
+
+                const currentFingerprint = rawText.replace(/\s/g, '').substring(0, 100);
+                if (oldAnalysisFingerprint && currentFingerprint === oldAnalysisFingerprint) continue;
+
+                if (titleFingerprint && currentFingerprint.includes(titleFingerprint) && currentFingerprint.length < titleFingerprint.length + 50) {
+                    continue;
+                }
+
+                const candidate = processContent(el, 'ans');
+                if (!candidate || candidate.length < 5) continue;
+
+                const candidateFingerprint = candidate.replace(/\s/g, '').substring(0, 100);
+                if (oldAnalysisFingerprint && candidateFingerprint === oldAnalysisFingerprint) continue;
+
+                fullAnaText = candidate;
+                break;
             }
+            if (fullAnaText) break;
         }
 
         if (fullAnaText) {
@@ -251,6 +272,31 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 finalAnalysis = fullAnaText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim();
                 if (finalAnalysis === '') finalAnalysis = fullAnaText;
             }
+        }
+
+        const ansSelectors = ['.right_answer', '#right_answer', '.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
+        for (const s of ansSelectors) {
+            const elements = Array.from(document.querySelectorAll(s));
+            for (let i = elements.length - 1; i >= 0; i--) {
+                const el = elements[i];
+                const raw = (el.innerText || el.textContent || '').trim();
+                if (!raw || raw.length < 1) continue;
+                const fp = raw.replace(/\s/g, '').substring(0, 100);
+                if (oldAnalysisFingerprint && fp === oldAnalysisFingerprint) continue;
+
+                const explicitLetters = extractLetters(raw);
+                if (explicitLetters) {
+                    finalAnswer = explicitLetters;
+                    break;
+                }
+
+                const cleaned = raw.replace(/^(正确答案|答案|参考答案)[：:\s]*/, '').trim();
+                if (cleaned && cleaned.length <= 100 && cleaned !== finalAnalysis) {
+                    finalAnswer = cleaned;
+                    break;
+                }
+            }
+            if (finalAnswer !== '未知') break;
         }
 
         const titleFinger = titleText.replace(/\s/g, '');
@@ -576,7 +622,16 @@ async function crawlSubject(page, subject) {
             while (true) {
                 await waitForQuestionReady(page);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-                const data = await readQuestionData(page, lastAnalysisFingerprint);
+                let data = await readQuestionData(page, lastAnalysisFingerprint);
+                if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint) {
+                    await handlePopup(page);
+                    await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+                    await randomSleep(1200, 2200);
+                    const retried = await readQuestionData(page, lastAnalysisFingerprint);
+                    if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
+                        data = retried;
+                    }
+                }
                 const [curr, totalNum] = data.step.split('/').map(Number);
                 if (!data.title || !curr || !totalNum) {
                     log(`题目页数据异常，step=${data.step} title=${data.title ? 'OK' : 'EMPTY'}`, 'WARN');
