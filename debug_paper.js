@@ -25,18 +25,23 @@ async function run() {
     await page.goto(PAPER_URL);
     await page.waitForTimeout(3000);
 
-    // 点击开始做题
-    await page.evaluate(() => {
-        const startSelectors = ['a.enable.a2', 'a:has-text("开始做题")', 'a:has-text("练习模式")', '#PaperStartTimes'];
-        for (const selector of startSelectors) {
-            const btn = document.querySelector(selector);
-            if (btn) {
-                btn.click();
-                break;
+    // 点击开始做题并等待导航完成
+    console.log('点击开始做题...');
+    await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+        page.evaluate(() => {
+            const startSelectors = ['a.enable.a2', 'a:has-text("开始做题")', 'a:has-text("练习模式")', '#PaperStartTimes'];
+            for (const selector of startSelectors) {
+                const btn = document.querySelector(selector);
+                if (btn) {
+                    btn.click();
+                    break;
+                }
             }
-        }
-    });
-    await page.waitForTimeout(4000);
+        })
+    ]);
+    console.log('导航完成，等待3秒...');
+    await page.waitForTimeout(3000);
 
     // 点击背题模式
     await page.evaluate(() => {
@@ -69,15 +74,10 @@ async function run() {
     });
     await page.waitForTimeout(3000);
 
-    // 抓取并打印 DOM
     const html = await page.content();
-    fs.writeFileSync('debug_q2.html', html);
-    console.log('保存到 debug_q2.html 完成。');
+    fs.writeFileSync('/Users/devin_aif/debug_q2_2024.html', html);
+    console.log('保存到 debug_q2_2024.html 完成。长度:', html.length);
     
-    // 测试一下 readQuestionData 的逻辑
-    const itemType = await page.evaluate(() => document.querySelector('#item_type, .item-type')?.innerText.trim());
-    console.log('itemType:', itemType);
-
     const analysisTexts = await page.evaluate(() => {
         const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
         let texts = [];
@@ -91,7 +91,8 @@ async function run() {
         return texts;
     });
     console.log('Found analysis nodes:', analysisTexts);
-
+    console.log('Page innerText length:', await page.evaluate(() => document.body.innerText.length));
+    
     await browser.close();
 }
 
