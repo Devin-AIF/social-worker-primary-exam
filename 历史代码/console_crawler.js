@@ -104,10 +104,22 @@ async function startCrawling() {
             }
         } catch(e) {}
 
+        const fetchOptions = () => {
+            // 尝试多种常见的选项容器选择器，包括共享题干题的嵌套结构
+            const selectors = ['#item_options li', '.subject-option li', '.option-list li', '.options li'];
+            for (const s of selectors) {
+                const items = document.querySelectorAll(s);
+                if (items.length > 0) {
+                    return Array.from(items).map(li => processContent(li)).join('\n');
+                }
+            }
+            return '';
+        };
+
         const res = {
             type: document.querySelector('#item_type')?.innerText.trim() || '题型',
             step,
-            options: Array.from(document.querySelectorAll('#item_options li')).map(li => processContent(li)).join('\n'),
+            options: fetchOptions(),
             answer: fetchAnswer(),
             analysis: fetchAnalysis(),
             title: processContent(titleEl)
@@ -140,9 +152,12 @@ async function startCrawling() {
     // 拼接成 Markdown 文本
     const titleName = document.title ? document.title.split('-')[0] : '抓取结果';
     const md = `# ${titleName}\n\n` + questions.map((q, i) => {
-        // 判断是否为客观题（有选项的题型）
-        const isObjective = !['简答题', '案例分析题', '案例题', '计算题', '论述题', '填空题', '主观题'].some(t => q.type.includes(t));
-        const optionsSection = (isObjective && q.options) ? `**选项：**\n\`\`\`\n${q.options}\n\`\`\`\n\n` : '';
+        // 1. 根据题型初步判断
+        const isSubjective = ['简答题', '案例分析题', '案例题', '计算题', '论述题', '填空题', '主观题'].some(t => q.type.includes(t));
+        // 2. 结合实际内容判断：如果是客观题但没抓到选项，也不显示选项块
+        const shouldShowOptions = !isSubjective && q.options && q.options.trim().length > 0;
+        
+        const optionsSection = shouldShowOptions ? `**选项：**\n\`\`\`\n${q.options}\n\`\`\`\n\n` : '';
         
         return `## 第 ${i + 1} 题 [${q.type}]\n\n**题目：** ${q.title}\n\n${optionsSection}> **正确答案：** ${q.answer}\n\n**解析：**\n${q.analysis}\n\n---\n`;
     }).join('\n');
