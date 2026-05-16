@@ -161,7 +161,7 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
             }
         }
         return false;
-    }, oldAnalysisFingerprint, { timeout: 3000 }).catch(() => false);
+    }, oldAnalysisFingerprint, { timeout: 6000 }).catch(() => false);
 }
 
 async function readQuestionData(page, staleState = {}) {
@@ -699,10 +699,10 @@ async function crawlSubject(page, subject) {
             const totalGoal = chapter.total || savedInfo.total || 0;
             const jsonProgress = Number(savedInfo.completed) || 0;
             const mdProgress = getCompletedCount(outputFile);
-            let startFrom = jsonProgress;
+            let startFrom = Math.max(jsonProgress, mdProgress);
+            
             if (jsonProgress > 0 && mdProgress > jsonProgress) {
                 log(`检测到本地 Markdown 已抓到 ${mdProgress} 题，将从该位置恢复: ${chapter.title}`, 'WARN');
-                startFrom = mdProgress;
             }
 
             if (savedInfo.isFinished || (totalGoal > 0 && startFrom >= totalGoal)) {
@@ -712,7 +712,9 @@ async function crawlSubject(page, subject) {
 
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
-            if (!fs.existsSync(outputFile) || startFrom === 0) {
+            
+            // 仅在文件不存在时写入标题，防止覆盖
+            if (!fs.existsSync(outputFile)) {
                 fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
             }
 
@@ -741,7 +743,7 @@ async function crawlSubject(page, subject) {
 
                 // 第一层补救：
                 // 如果当前题读到的是“无解析”或被判定为冲突拦截，先在当前题原地重触发一次解析。
-                if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint) {
+                if (data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') {
                     await handlePopup(page);
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                     await randomSleep(1200, 2200);
