@@ -268,6 +268,7 @@ async function readQuestionData(page, staleState = {}) {
         // 兜底清理
         if (finalAnswer.includes('正确答案：')) finalAnswer = finalAnswer.replace('正确答案：', '').trim();
         
+        const titleFingerprint = titleText.replace(/\s/g, '');
         const resolvedFingerprint = `${finalAnswer}|${finalAnalysis}`.replace(/\s/g, '').substring(0, 160);
 
         return {
@@ -280,6 +281,7 @@ async function readQuestionData(page, staleState = {}) {
             images,
             fingerprint: (step + titleText.substring(0, 30)).replace(/\s/g, ''),
             analysisFingerprint: fullAnaText.replace(/\s/g, '').substring(0, 100),
+            titleFingerprint,
             resolvedFingerprint
         };
     }, { ENABLE_DISCUSSION_FALLBACK, staleState });
@@ -700,6 +702,7 @@ async function crawlSubject(page, subject) {
                         if (staleFingerprints.length > 3) staleFingerprints.shift();
                     }
                 }
+                lastTitleFingerprint = data.titleFingerprint;
                 lastWrittenCurr = curr;
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
