@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Write bug condition exploration test
+- [-] 1. Write bug condition exploration test
   - **Property 1: Bug Condition** - Stale DOM Substring Match Causes Immediate "无解析" on Q2+
   - **CRITICAL**: This test MUST FAIL on unfixed code — failure confirms the bug exists
   - **DO NOT attempt to fix the test or the code when it fails**
