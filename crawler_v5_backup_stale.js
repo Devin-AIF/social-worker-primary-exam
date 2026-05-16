@@ -158,25 +158,6 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     return true; 
 }
 
-async function clearCurrentAnalysis(page) {
-    await page.evaluate(() => {
-        // 清除所有可能的解析容器的内容，强制要求页面重新填入新内容
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content'];
-        anaSelectors.forEach(s => {
-            document.querySelectorAll(s).forEach(el => {
-                if (el) el.innerText = '等待刷新中...';
-            });
-        });
-        const ansSelectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer'];
-        ansSelectors.forEach(s => {
-            document.querySelectorAll(s).forEach(el => {
-                if (el) el.innerText = '等待中...';
-            });
-        });
-        try { localStorage.clear(); sessionStorage.clear(); } catch(e){}
-    });
-}
-
 async function readQuestionData(page, staleState = {}) {
     return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, staleState }) => {
         const {
@@ -184,12 +165,6 @@ async function readQuestionData(page, staleState = {}) {
             staleFingerprints = [],
             oldTitleFingerprint = ''
         } = staleState || {};
-
-        // 辅助函数：判断元素是否真正可见且有内容
-        const isActuallyVisible = (el) => {
-            if (!el) return false;
-            return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-        };
 
         const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
         const images = [];
@@ -210,7 +185,7 @@ async function readQuestionData(page, staleState = {}) {
             });
 
             let text = (clone.innerText || clone.textContent || '').trim();
-            const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g, /查看视频/g, /听课/g, /展开解析/g, /等待刷新中\.\.\./g, /等待中\.\.\./g];
+            const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g, /查看视频/g, /听课/g, /展开解析/g];
             junkPatterns.forEach(p => text = text.replace(p, ''));
             return text.trim();
         };
@@ -231,35 +206,34 @@ async function readQuestionData(page, staleState = {}) {
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
 
-        // 1. 提取答案 (优先寻找可见的答案节点)
-        const ansSelectors = ['.right', '.answer-yes .right', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer'];
+        // 1. 提取答案 (参考 console_crawler.js 逻辑)
+        const ansSelectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer'];
         for (const s of ansSelectors) {
-            const elements = document.querySelectorAll(s);
-            for (const el of elements) {
-                if (isActuallyVisible(el)) {
-                    let t = el.innerText.replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').trim();
-                    if (t && t.length > 0 && t.length < 500 && !t.includes('等待中')) {
-                        finalAnswer = t;
-                        break;
-                    }
+            const el = document.querySelector(s);
+            if (el) {
+                let t = el.innerText.replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').trim();
+                if (t && t.length > 0 && t.length < 500) {
+                    finalAnswer = t;
+                    break;
                 }
             }
-            if (finalAnswer !== '未知') break;
         }
 
-        // 2. 提取解析区域全文 (仅限可见容器)
+        // 2. 提取解析区域全文 (参考 console_crawler.js 逻辑)
         const anaSelectors = [
-            '.analysis.pd10', '#answer_analysis .analysis', '#analysis .analysis', 
-            '.answer-content .analysis', '.jiexi-content', '.solution'
+            '.analysis.pd10', '#answer_analysis .analysis', '#analysis', 
+            '.analysis', '.answer-yes .analysis', '.answer-wrong .analysis',
+            '.item_analysis', '#item_analysis', '.jiexi-content', '.solution'
         ];
         
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
-                if (isActuallyVisible(el)) {
+                // 核心改动：必须是可见元素，且具有实质内容
+                if (el && el.offsetParent !== null) {
                     const candidate = processContent(el, 'ans');
-                    if (candidate && candidate.length > 5 && !candidate.includes('点击查看解析') && !candidate.includes('等待刷新')) {
+                    if (candidate && candidate.length > 5 && !candidate.includes('点击查看解析')) {
                         fullAnaText = candidate;
                         break;
                     }
@@ -268,7 +242,7 @@ async function readQuestionData(page, staleState = {}) {
             if (fullAnaText) break;
         }
 
-        // 3. 解析拆分逻辑
+        // 3. 解析拆分逻辑 (核心搬运自 console_crawler.js)
         if (fullAnaText) {
             if (finalAnswer === '未知' && /(参考答案|正确答案)[：:\n]/.test(fullAnaText)) {
                 const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
