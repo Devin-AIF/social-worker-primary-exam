@@ -695,6 +695,8 @@ async function crawlSubject(page, subject) {
         }
 
         for (const chapter of chapters) {
+            if (!chapter.id.includes('14658')) continue;
+
             const statusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
@@ -781,6 +783,13 @@ async function crawlSubject(page, subject) {
                 // 这时不直接落盘，而是原地再触发一次重新读。
                 const isSharedCaseMain = data.type.includes('共享题干') || (lastTitleFingerprint && data.titleFingerprint && lastTitleFingerprint.substring(0, 50) === data.titleFingerprint.substring(0, 50));
                 const isRepeatedInHistory = !isSharedCaseMain && data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
+                
+                // --- DEBUG 14658 ---
+                if (chapter.id.includes('14658')) {
+                    fs.appendFileSync('debug_14658.log', `[Q${curr}] Title: ${data.title.substring(0,20)}\nType: ${data.type}\nisSharedCaseMain: ${isSharedCaseMain}\nisRepeatedInHistory: ${isRepeatedInHistory}\nAnalysis: ${data.analysis.substring(0,100)}\nstaleFingerprints: ${JSON.stringify(staleFingerprints)}\nresolvedFingerprint: ${data.resolvedFingerprint}\n\n`);
+                }
+                // -------------------
+
                 if (isRepeatedInHistory && data.titleFingerprint !== lastTitleFingerprint) {
                     log(`检测到跨题复用了历史答案/解析，正在重试当前题: ${data.step}`, 'WARN');
                     await handlePopup(page);
@@ -890,11 +899,7 @@ async function run() {
     if (fs.existsSync(STATUS_FILE)) { try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch(e) {} }
 
     const ALL_SUBJECTS = [
-        { name: '2026年初级社会工作者《初级社会工作实务》考试题库', productId: '1525' },
-        { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' },
-        { name: '2026年中级社会工作者《中级社会工作法规与政策》考试题库', productId: '39' },
-        { name: '2026年中级社会工作者《中级社会工作综合能力》考试题库', productId: '316' },
-        { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
+        { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' }
     ];
 
     for (const subject of ALL_SUBJECTS) {
