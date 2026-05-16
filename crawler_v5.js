@@ -727,8 +727,6 @@ async function crawlSubject(page, subject) {
         }
 
         for (const chapter of chapters) {
-            if (!chapter.id.includes('14658')) continue;
-
             const statusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
@@ -921,7 +919,14 @@ async function crawlSubject(page, subject) {
 
 async function run() {
     log('正在开启 V5.0 全自动增强版...', 'INFO');
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ 
+        headless: false, 
+        args: [
+            '--proxy-server="direct://"', 
+            '--proxy-bypass-list=*',
+            '--disable-blink-features=AutomationControlled'
+        ] 
+    });
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
