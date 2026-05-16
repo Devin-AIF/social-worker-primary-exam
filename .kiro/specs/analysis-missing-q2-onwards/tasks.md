@@ -18,7 +18,7 @@
   - Mark task complete when test is written, run, and failure is documented
   - _Requirements: 1.1, 1.2, 1.3_
 
-- [-] 2. Write preservation property tests (BEFORE implementing fix)
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
   - **Property 2: Preservation** - Non-Buggy Inputs Produce Identical Results
   - **IMPORTANT**: Follow observation-first methodology — observe UNFIXED code behavior for non-buggy inputs first
   - Create test file at `tests/preservation.test.js` using Node.js built-in `assert`
@@ -40,7 +40,7 @@
 
 - [ ] 3. Fix for stale DOM causing "无解析" on Q2 onwards in 2024 papers
 
-  - [ ] 3.1 Change 1 — Extend `triggerOfficialAnalysis` poll timeout and add re-fire on timeout
+  - [x] 3.1 Change 1 — Extend `triggerOfficialAnalysis` poll timeout and add re-fire on timeout
     - In `crawler_v5.js`, locate `triggerOfficialAnalysis` (around line 130)
     - Increase the `waitForFunction` timeout from `6000` ms to `15000` ms
     - After the `waitForFunction` call, if `result` is falsy (poll timed out), re-fire `trigger()` once more and `await page.waitForTimeout(3000)`
@@ -50,7 +50,7 @@
     - _Preservation: 2025 papers unaffected (DOM clears immediately, poll resolves quickly); Q1 unaffected (empty stale pool, `oldAnalysisFingerprint = ''`); genuine no-analysis fallback unaffected (poll still returns `false` after 15s if no content loads)_
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-  - [ ] 3.2 Change 2 — Replace single first-layer retry with a loop of up to 3 attempts in `crawlSubject`
+  - [-] 3.2 Change 2 — Replace single first-layer retry with a loop of up to 3 attempts in `crawlSubject`
     - In `crawler_v5.js`, locate the first-layer retry block in `crawlSubject` (around line 780): the `if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint)` block
     - Replace the single retry (one `triggerOfficialAnalysis` call + `randomSleep(1200, 2200)` + one `readQuestionData`) with a loop of up to 3 attempts
     - Use increasing delays: attempt 0 → `randomSleep(2000, 3000)`, attempt 1 → `randomSleep(4000, 5000)`, attempt 2 → `randomSleep(6000, 7000)`

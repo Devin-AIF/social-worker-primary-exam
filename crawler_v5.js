@@ -150,7 +150,7 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     await handlePopup(page);
     await trigger();
     await page.waitForTimeout(3500); // 增加硬等待时间，给网络请求充足的时间
-    return await page.waitForFunction((oldFinger) => {
+    const result = await page.waitForFunction((oldFinger) => {
         const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution'];
         for (const s of sel) {
             const el = document.querySelector(s);
@@ -160,7 +160,13 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
             }
         }
         return false;
-    }, oldAnalysisFingerprint, { timeout: 6000 }).catch(() => false);
+    }, oldAnalysisFingerprint, { timeout: 15000 }).catch(() => false);
+    if (!result) {
+        // 2024 站点 DOM 更新较慢，若首次轮询超时则再触发一次点击并额外等待
+        await trigger();
+        await page.waitForTimeout(3000);
+    }
+    return result;
 }
 
 async function readQuestionData(page, staleState = {}) {
