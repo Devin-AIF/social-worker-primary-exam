@@ -58,9 +58,11 @@ function getCompletedCount(filePath) {
     if (!fs.existsSync(filePath)) return 0;
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
-        const matches = content.match(/## 第 \d+ 题/g);
+        // 匹配 "## 第 X 题" 或 "### 第 X 题"，支持不同层级的标题
+        const matches = content.match(/#{2,3}\s+第\s*\d+\s*题/g);
         return matches ? matches.length : 0;
     } catch (e) {
+        log(`读取文件统计进度失败: ${e.message}`, 'WARN');
         return 0;
     }
 }
@@ -355,23 +357,37 @@ async function readQuestionData(page, staleState = {}) {
         }
 
         if (fullAnaText) {
-            if (finalAnswer === '未知' && /(参考答案|正确答案)[：:\n]/.test(fullAnaText)) {
-                const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
-                if (anaMatch) {
-                    const parts = fullAnaText.split(anaMatch[0]);
-                    finalAnswer = stripUiJunk(parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
-                    finalAnalysis = stripUiJunk(parts.slice(1).join(anaMatch[0]).trim());
-                } else if (fullAnaText.includes('暂无解析')) {
-                    finalAnswer = stripUiJunk(fullAnaText.split('暂无解析')[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
+            // 如果解析区包含了“参考答案”或“正确答案”等关键字，优先尝试从中切分出结构化答案
+            const answerMatch = fullAnaText.match(/(?:【?\s*参考答案\s*】?|【?\s*正确答案\s*】?|【?\s*参考答案及解析\s*】?)[：:\n\s]*/);
+            if (answerMatch) {
+                const afterAnswer = fullAnaText.split(answerMatch[0])[1];
+                // 在答案之后寻找“解析”关键字，进一步细分
+                const analysisMatch = afterAnswer.match(/(?:【?\s*参考解析\s*】?|【?\s*题目解析\s*】?|【?\s*答案解析\s*】?|【?\s*解析\s*】?)[：:\n\s]*/);
+                
+                if (analysisMatch) {
+                    const parts = afterAnswer.split(analysisMatch[0]);
+                    finalAnswer = stripUiJunk(parts[0].trim());
+                    finalAnalysis = stripUiJunk(parts.slice(1).join(analysisMatch[0]).trim());
+                } else if (afterAnswer.includes('暂无解析')) {
+                    // 处理“参考答案：XXX 暂无解析”的情况
+                    finalAnswer = stripUiJunk(afterAnswer.split('暂无解析')[0].trim());
                     finalAnalysis = '无';
                 } else {
-                    finalAnswer = stripUiJunk(fullAnaText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
+                    // 只有“参考答案”，没有解析标志
+                    finalAnswer = stripUiJunk(afterAnswer.trim());
                     finalAnalysis = '无';
                 }
             } else {
-                finalAnalysis = stripUiJunk(fullAnaText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim());
+                // 如果没有检测到明确的“参考答案”引导词，则整体作为解析处理
+                finalAnalysis = stripUiJunk(fullAnaText.replace(/(?:【?\s*参考解析\s*】?|【?\s*题目解析\s*】?|【?\s*答案解析\s*】?|【?\s*解析\s*】?)[：:\n\s]*/i, '').trim());
                 if (finalAnalysis === '') finalAnalysis = fullAnaText;
             }
+        }
+
+        // 剔除内容中的“暂无解析”垃圾后缀
+        if (finalAnalysis && finalAnalysis.includes('暂无解析')) {
+            finalAnalysis = finalAnalysis.replace(/暂无解析\s*$/g, '').trim();
+            if (finalAnalysis === '') finalAnalysis = '无';
         }
 
         // 客观题通常能从独立答案节点里直接拿到 ABCD；
@@ -410,9 +426,11 @@ async function readQuestionData(page, staleState = {}) {
 
         if (isPlaceholderAnswer(finalAnswer)) finalAnswer = '未知';
         if (looksLikeUiJunk(finalAnswer)) finalAnswer = '未知';
-        // 主观题里如果“答案”是一大段长文本，通常说明它其实是误抓了整块答题区。
-        // 这时宁可把 answer 置为未知，也把完整内容留在 analysis 里，避免污染结构化输出。
-        if (isSubjective && finalAnswer !== '未知' && finalAnswer.length > 20) finalAnswer = '未知';
+        // 对于主观题，如果抓到的答案太长，且不是明确从“参考答案”引导词后切分出来的，
+        // 则很有可能是误抓了整个答题区，这时重置为未知以保证输出美观。
+        if (isSubjective && finalAnswer !== '未知' && finalAnswer.length > 300) {
+             finalAnswer = '未知';
+        }
         if (isSubjective && finalAnalysis !== '无解析' && finalAnalysis !== '无解析 (抓取冲突已拦截)' && finalAnalysis.length < 5) {
             finalAnalysis = fullAnaText || finalAnalysis;
         }
