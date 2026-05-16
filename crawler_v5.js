@@ -523,7 +523,7 @@ async function waitForQuestionChange(page, oldStep, oldItemId) {
  * @returns {Promise<Object>} 提取出的题目对象
  */
 async function readQuestionData(page, oldAnalysisFingerprint = '') {
-    return page.evaluate(({ enableDiscussionFallback, oldAnalysisFingerprint }) => {
+    return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint }) => {
         const isVisible = (el) => {
             if (!el) return false;
             const style = window.getComputedStyle(el);
@@ -653,7 +653,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
         analysisRaw = trySelect(analysisSelectors, false) || trySelect(fallbackSelectors, true) || '无解析';
 
         // 4. 讨论区后备
-        if (analysisRaw === '无解析' && enableDiscussionFallback) {
+        if (analysisRaw === '无解析' && ENABLE_DISCUSSION_FALLBACK) {
             const talks = Array.from(document.querySelectorAll('.tiku-talk-list li, .question-talk-list li, .talk-list li'));
             for (let i = 0; i < talks.length; i++) {
                 const isTeacher = talks[i].querySelector('.terd') || talks[i].innerText.includes('老师') || talks[i].innerText.includes('欣师');
@@ -711,7 +711,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             fingerprint: (step + (document.querySelector('#item_id')?.innerText || '') + titleText.substring(0, 30)).replace(/\s/g, ''),
             analysisFingerprint: analysisRaw.replace(/\s/g, '').substring(0, 100)
         };
-    }, { enableDiscussionFallback, oldAnalysisFingerprint });
+    }, { ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint });
 }
 
 /**
