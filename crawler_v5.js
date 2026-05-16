@@ -223,6 +223,11 @@ async function readQuestionData(page, staleState = {}) {
         // 2. 解析由于某种原因复现了数题之前的缓存内容
         const isProbablyStale = (fingerprint) => {
             if (!fingerprint || fingerprint.length < 10) return false;
+            
+            // 豁免逻辑：如果是共享题干的案例题，或者题干前50个字符与上一题一致，说明它们是同一个大题的子题目，共享解析是合理的。
+            const isSharedCase = itemType.includes('共享题干') || (oldTitleFingerprint && titleFingerprint && oldTitleFingerprint.substring(0, 50) === titleFingerprint.substring(0, 50));
+            if (isSharedCase) return false;
+
             const current = String(fingerprint);
             
             // 基础检查：对比上一题解析区
@@ -774,7 +779,8 @@ async function crawlSubject(page, subject) {
                 // 第二层补救：
                 // 题干已经变了，但“答案+解析”整块内容雷同于历史记录，基本可以断定发生了串题。
                 // 这时不直接落盘，而是原地再触发一次重新读。
-                const isRepeatedInHistory = data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
+                const isSharedCaseMain = data.type.includes('共享题干') || (lastTitleFingerprint && data.titleFingerprint && lastTitleFingerprint.substring(0, 50) === data.titleFingerprint.substring(0, 50));
+                const isRepeatedInHistory = !isSharedCaseMain && data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
                 if (isRepeatedInHistory && data.titleFingerprint !== lastTitleFingerprint) {
                     log(`检测到跨题复用了历史答案/解析，正在重试当前题: ${data.step}`, 'WARN');
                     await handlePopup(page);
