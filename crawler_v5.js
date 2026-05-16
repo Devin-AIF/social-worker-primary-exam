@@ -167,8 +167,11 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
 async function readQuestionData(page, staleState = {}) {
     return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, staleState }) => {
         const {
+            // 上一题解析区域的指纹。用于识别“当前题页面里还残留着上一题解析”的情况。
             oldAnalysisFingerprint = '',
+            // 上一题最终写入的“答案+解析”联合指纹。用于识别整块答案区被跨题复用的情况。
             oldResolvedFingerprint = '',
+            // 上一题题干指纹。用于识别当前抓到的内容其实还指向上一题题干。
             oldTitleFingerprint = ''
         } = staleState || {};
 
@@ -183,9 +186,14 @@ async function readQuestionData(page, staleState = {}) {
             return match ? match[1].replace(/[^A-F]/g, '') : '';
         };
 
+        // 某些题目的“答案区”只会给一个占位词，而不是实际答案。
+        // 这些词一旦被当真写进 markdown，后续就很难再自动修复，所以在入口处直接判掉。
         const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析)$/i.test((text || '').trim());
         const normalizeFingerprint = (text, limit = 160) => (text || '').replace(/\s/g, '').substring(0, limit);
         const hasStepPattern = (text) => /\b\d+\s*\/\s*\d+\b/.test(text || '');
+
+        // 网站经常把整块答题区、题型标签、分页、讨论区文案一起塞进同一个节点。
+        // 这类文本不是“答案”，但很容易被 Playwright 读到，所以这里集中做一次黑名单过滤。
         const looksLikeUiJunk = (text) => {
             const value = (text || '').trim();
             if (!value) return true;
@@ -196,6 +204,9 @@ async function readQuestionData(page, staleState = {}) {
             if (hasStepPattern(value)) return true;
             return false;
         };
+
+        // 即使节点里混进了 UI 文案，有时候主体答案仍然是有价值的。
+        // 所以先尽量裁掉答题区尾巴、讨论区尾巴、题号分页等噪声，再决定要不要丢弃。
         const stripUiJunk = (text) => {
             let value = (text || '').trim();
             value = value.replace(/试题讨论[\s\S]*$/g, '').trim();
@@ -206,6 +217,10 @@ async function readQuestionData(page, staleState = {}) {
             return value;
         };
 
+        // 判断一个候选文本是否“很像上一题残留内容”。
+        // 这里同时对比上一题解析指纹和上一题完整答案+解析指纹，防止两种串题：
+        // 1. 解析区没刷新，直接沿用上一题解析
+        // 2. 整块答案区没刷新，连“答案+解析”一起沿用
         const isProbablyStale = (fingerprint) => {
             if (!fingerprint) return false;
             const current = String(fingerprint);
@@ -263,11 +278,17 @@ async function readQuestionData(page, staleState = {}) {
         const optionsList = fetchOptions();
         const titleFingerprint = (titleText + stemText).replace(/\s/g, '');
         const itemType = document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型';
+
+        // 主观题（问答/案例/方案设计等）在这个站点里经常没有单独、短小、稳定的“答案节点”。
+        // 相反，它们更常见的是：完整参考答案混在解析区里，或者答案区只显示“答案及”。
+        // 所以主观题默认更信任“解析区的大文本”，更不信任通用答案节点。
         const isSubjective = /问答题|简答题|案例分析题|论述题|方案设计题|主观题|案例题/.test(itemType);
 
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
 
+        // 解析容器按“更像真实解析”的优先级排列。
+        // 注意这里故意保留了一些宽松兜底选择器，因为不同章节/题型的 DOM 结构并不统一。
         const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
@@ -287,6 +308,10 @@ async function readQuestionData(page, staleState = {}) {
                     continue;
                 }
 
+                // 不直接相信 rawText，而是走一遍 processContent：
+                // 1. 去掉按钮/链接/交互控件
+                // 2. 保留图片占位
+                // 3. 尽量还原可写入 markdown 的正文
                 const candidate = processContent(el, 'ans');
                 if (!candidate || candidate.length < 5) continue;
                 if (looksLikeUiJunk(candidate)) continue;
@@ -321,6 +346,8 @@ async function readQuestionData(page, staleState = {}) {
             }
         }
 
+        // 客观题通常能从独立答案节点里直接拿到 ABCD；
+        // 主观题则更多把“参考答案全文”混在解析里，所以这里更像是“补充兜底”，不是唯一真相来源。
         const ansSelectors = ['.right_answer', '#right_answer', '.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
         for (const s of ansSelectors) {
             const elements = Array.from(document.querySelectorAll(s));
@@ -332,12 +359,15 @@ async function readQuestionData(page, staleState = {}) {
                 if (isProbablyStale(fp)) continue;
                 if (looksLikeUiJunk(raw)) continue;
 
+                // 如果能明确抽到 A/B/C/D，多半是客观题真实答案，优先采用。
                 const explicitLetters = extractLetters(raw);
                 if (explicitLetters) {
                     finalAnswer = explicitLetters;
                     break;
                 }
 
+                // 对于不是纯字母的答案文本，只接受“足够短、不是题干、不是 UI 垃圾”的内容。
+                // 这一步主要是为了防止把整个答题区、分页、讨论区甚至上一题残留整段文本塞进答案。
                 const cleaned = stripUiJunk(raw.replace(/^(正确答案|答案|参考答案)[：:\s]*/, '').trim());
                 const cleanedFinger = normalizeFingerprint(cleaned, 120);
                 if (titleFingerprint && cleanedFinger.includes(titleFingerprint)) continue;
@@ -352,6 +382,8 @@ async function readQuestionData(page, staleState = {}) {
 
         if (isPlaceholderAnswer(finalAnswer)) finalAnswer = '未知';
         if (looksLikeUiJunk(finalAnswer)) finalAnswer = '未知';
+        // 主观题里如果“答案”是一大段长文本，通常说明它其实是误抓了整块答题区。
+        // 这时宁可把 answer 置为未知，也把完整内容留在 analysis 里，避免污染结构化输出。
         if (isSubjective && finalAnswer !== '未知' && finalAnswer.length > 20) finalAnswer = '未知';
         if (isSubjective && finalAnalysis !== '无解析' && finalAnalysis !== '无解析 (抓取冲突已拦截)' && finalAnalysis.length < 5) {
             finalAnalysis = fullAnaText || finalAnalysis;
@@ -362,6 +394,8 @@ async function readQuestionData(page, staleState = {}) {
             finalAnalysis = '无解析 (抓取冲突已拦截)';
         }
 
+        // 最终写入 markdown 的核心内容指纹。
+        // 主循环里会拿它和上一题对比，拦截“跨题复用上一题整块答案/解析”的情况。
         const resolvedFingerprint = `${finalAnswer}|${finalAnalysis}`.replace(/\s/g, '').substring(0, 160);
 
         return {
@@ -679,18 +713,26 @@ async function crawlSubject(page, subject) {
             let lastAnalysisFingerprint = '';
             let lastStem = '';
             let lastFingerprint = '';
+            // 上一题完整“答案+解析”指纹。
+            // 用于发现当前题虽然题干变了，但答案和解析整块没变的串题问题。
             let lastResolvedFingerprint = '';
+            // 上一题题干指纹。用于辅助识别“当前候选内容其实还在引用上一题题干”的情况。
             let lastTitleFingerprint = '';
             let stuckCount = 0;
             let lastWrittenCurr = startFrom;
             while (true) {
                 await waitForQuestionReady(page);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+
+                // 每次读取时都带着上一题的状态进入浏览器上下文，让页面内提取逻辑有能力识别“旧内容残留”。
                 let data = await readQuestionData(page, {
                     oldAnalysisFingerprint: lastAnalysisFingerprint,
                     oldResolvedFingerprint: lastResolvedFingerprint,
                     oldTitleFingerprint: lastTitleFingerprint
                 });
+
+                // 第一层补救：
+                // 如果当前题读到的是“无解析”或被判定为冲突拦截，先在当前题原地重触发一次解析。
                 if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint) {
                     await handlePopup(page);
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
@@ -721,6 +763,9 @@ async function crawlSubject(page, subject) {
                     lastFingerprint = data.fingerprint;
                 }
 
+                // 第二层补救：
+                // 题干已经变了，但“答案+解析”整块内容和上一题完全一样，基本可以断定发生了串题。
+                // 这时不直接落盘，而是原地再触发一次重新读。
                 if (lastResolvedFingerprint && data.resolvedFingerprint === lastResolvedFingerprint && data.titleFingerprint !== lastTitleFingerprint) {
                     log(`检测到跨题复用了上一题答案/解析，正在重试当前题: ${data.step}`, 'WARN');
                     await handlePopup(page);
