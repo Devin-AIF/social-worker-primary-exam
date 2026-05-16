@@ -164,8 +164,14 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     }, oldAnalysisFingerprint, { timeout: 3000 }).catch(() => false);
 }
 
-async function readQuestionData(page, oldAnalysisFingerprint = '') {
-    return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint }) => {
+async function readQuestionData(page, staleState = {}) {
+    return page.evaluate(({ ENABLE_DISCUSSION_FALLBACK, staleState }) => {
+        const {
+            oldAnalysisFingerprint = '',
+            oldResolvedFingerprint = '',
+            oldTitleFingerprint = ''
+        } = staleState || {};
+
         const isVisible = (el) => {
             if (!el) return false;
             const style = window.getComputedStyle(el);
@@ -175,6 +181,19 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
         const extractLetters = (text) => {
             const match = (text || '').match(/正确答案[^A-F]*([A-F、,，\s]+)/) || (text || '').match(/答案[^A-F]*([A-F]+)/);
             return match ? match[1].replace(/[^A-F]/g, '') : '';
+        };
+
+        const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析)$/i.test((text || '').trim());
+
+        const isProbablyStale = (fingerprint) => {
+            if (!fingerprint) return false;
+            const current = String(fingerprint);
+            const staleList = [oldAnalysisFingerprint, oldResolvedFingerprint].filter(Boolean).map(v => String(v));
+            return staleList.some(stale => {
+                if (current === stale) return true;
+                if (current.length > 40 && stale.length > 40 && (current.includes(stale) || stale.includes(current))) return true;
+                return false;
+            });
         };
 
         const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
@@ -236,9 +255,12 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 if (!rawText || rawText.length < 5 || rawText.includes('点击查看解析')) continue;
 
                 const currentFingerprint = rawText.replace(/\s/g, '').substring(0, 100);
-                if (oldAnalysisFingerprint && currentFingerprint === oldAnalysisFingerprint) continue;
+                if (isProbablyStale(currentFingerprint)) continue;
 
                 if (titleFingerprint && currentFingerprint.includes(titleFingerprint) && currentFingerprint.length < titleFingerprint.length + 50) {
+                    continue;
+                }
+                if (oldTitleFingerprint && currentFingerprint.includes(oldTitleFingerprint) && !currentFingerprint.includes(titleFingerprint)) {
                     continue;
                 }
 
@@ -246,7 +268,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 if (!candidate || candidate.length < 5) continue;
 
                 const candidateFingerprint = candidate.replace(/\s/g, '').substring(0, 100);
-                if (oldAnalysisFingerprint && candidateFingerprint === oldAnalysisFingerprint) continue;
+                if (isProbablyStale(candidateFingerprint)) continue;
 
                 fullAnaText = candidate;
                 break;
@@ -282,7 +304,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 const raw = (el.innerText || el.textContent || '').trim();
                 if (!raw || raw.length < 1) continue;
                 const fp = raw.replace(/\s/g, '').substring(0, 100);
-                if (oldAnalysisFingerprint && fp === oldAnalysisFingerprint) continue;
+                if (isProbablyStale(fp)) continue;
 
                 const explicitLetters = extractLetters(raw);
                 if (explicitLetters) {
@@ -291,7 +313,7 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
                 }
 
                 const cleaned = raw.replace(/^(正确答案|答案|参考答案)[：:\s]*/, '').trim();
-                if (cleaned && cleaned.length <= 100 && cleaned !== finalAnalysis) {
+                if (cleaned && cleaned.length <= 100 && cleaned !== finalAnalysis && !isPlaceholderAnswer(cleaned)) {
                     finalAnswer = cleaned;
                     break;
                 }
@@ -299,10 +321,14 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             if (finalAnswer !== '未知') break;
         }
 
+        if (isPlaceholderAnswer(finalAnswer)) finalAnswer = '未知';
+
         const titleFinger = titleText.replace(/\s/g, '');
         if (finalAnalysis.replace(/\s/g, '').includes(titleFinger) && finalAnalysis.length < titleText.length + 50) {
             finalAnalysis = '无解析 (抓取冲突已拦截)';
         }
+
+        const resolvedFingerprint = `${finalAnswer}|${finalAnalysis}`.replace(/\s/g, '').substring(0, 160);
 
         return {
             type: document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型',
@@ -310,9 +336,11 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             stem: stemText, title: titleText, options: optionsList,
             answer: finalAnswer, analysis: finalAnalysis, images,
             fingerprint: (step + titleText.substring(0, 30)).replace(/\s/g, ''),
-            analysisFingerprint: fullAnaText.replace(/\s/g, '').substring(0, 100)
+            analysisFingerprint: fullAnaText.replace(/\s/g, '').substring(0, 100),
+            titleFingerprint,
+            resolvedFingerprint
         };
-    }, { ENABLE_DISCUSSION_FALLBACK, oldAnalysisFingerprint });
+    }, { ENABLE_DISCUSSION_FALLBACK, staleState });
 }
 
 // --- 导航与流控 (恢复 V4 稳健架构) ---
@@ -617,17 +645,27 @@ async function crawlSubject(page, subject) {
             let lastAnalysisFingerprint = '';
             let lastStem = '';
             let lastFingerprint = '';
+            let lastResolvedFingerprint = '';
+            let lastTitleFingerprint = '';
             let stuckCount = 0;
             let lastWrittenCurr = startFrom;
             while (true) {
                 await waitForQuestionReady(page);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-                let data = await readQuestionData(page, lastAnalysisFingerprint);
+                let data = await readQuestionData(page, {
+                    oldAnalysisFingerprint: lastAnalysisFingerprint,
+                    oldResolvedFingerprint: lastResolvedFingerprint,
+                    oldTitleFingerprint: lastTitleFingerprint
+                });
                 if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint) {
                     await handlePopup(page);
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
                     await randomSleep(1200, 2200);
-                    const retried = await readQuestionData(page, lastAnalysisFingerprint);
+                    const retried = await readQuestionData(page, {
+                        oldAnalysisFingerprint: lastAnalysisFingerprint,
+                        oldResolvedFingerprint: lastResolvedFingerprint,
+                        oldTitleFingerprint: lastTitleFingerprint
+                    });
                     if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
                         data = retried;
                     }
@@ -647,6 +685,21 @@ async function crawlSubject(page, subject) {
                 } else {
                     stuckCount = 0;
                     lastFingerprint = data.fingerprint;
+                }
+
+                if (lastResolvedFingerprint && data.resolvedFingerprint === lastResolvedFingerprint && data.titleFingerprint !== lastTitleFingerprint) {
+                    log(`检测到跨题复用了上一题答案/解析，正在重试当前题: ${data.step}`, 'WARN');
+                    await handlePopup(page);
+                    await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+                    await randomSleep(1500, 2500);
+                    const retried = await readQuestionData(page, {
+                        oldAnalysisFingerprint: lastAnalysisFingerprint,
+                        oldResolvedFingerprint: lastResolvedFingerprint,
+                        oldTitleFingerprint: lastTitleFingerprint
+                    });
+                    if (retried.resolvedFingerprint !== lastResolvedFingerprint) {
+                        data = retried;
+                    }
                 }
 
                 if (curr <= startFrom) {
@@ -686,6 +739,8 @@ async function crawlSubject(page, subject) {
                 fs.appendFileSync(outputFile, md);
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
+                lastResolvedFingerprint = data.resolvedFingerprint;
+                lastTitleFingerprint = data.titleFingerprint;
                 lastWrittenCurr = curr;
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
