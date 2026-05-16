@@ -7,7 +7,7 @@ const AUTH = {
 };
 const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
 // 2025中级实务真题的ID是 paper-16044，尝试猜测其 URL
-const PAPER_URL = 'https://www.xs507.com/Tiku/exam/paper_id/16044.html?again=1';
+const PAPER_URL = 'https://www.xs507.com/Tiku/exam/paper_id/14658.html?again=1';
 
 async function run() {
     console.log('启动浏览器...');
