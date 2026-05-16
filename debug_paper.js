@@ -5,9 +5,6 @@ const AUTH = {
     user: process.env.XS507_USER || '13510922043',
     pass: process.env.XS507_PASS || '265567'
 };
-const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
-// 2025中级实务真题的ID是 paper-16044，尝试猜测其 URL
-const PAPER_URL = 'https://www.xs507.com/Tiku/exam/paper_id/14658.html?again=1';
 
 async function run() {
     console.log('启动浏览器...');
@@ -16,16 +13,30 @@ async function run() {
     const page = await context.newPage();
 
     console.log('登录...');
-    await page.goto(LOGIN_URL);
+    await page.goto('https://www.xs507.com/Home/login/account.html?hide-tip=1');
     await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
     await page.fill('input[placeholder*="手机号"]', AUTH.user);
     await page.fill('input[placeholder*="密码"]', AUTH.pass);
     await page.click('.login-form-btn');
     await page.waitForTimeout(3000);
 
-    console.log(`跳转到试卷 ${PAPER_URL}...`);
+    const PAPER_URL = 'https://www.xs507.com/Tiku/Product/detail/paper_id/14658.html';
+    console.log(`跳转到试卷详情页 ${PAPER_URL}...`);
     await page.goto(PAPER_URL);
     await page.waitForTimeout(3000);
+
+    // 点击开始做题
+    await page.evaluate(() => {
+        const startSelectors = ['a.enable.a2', 'a:has-text("开始做题")', 'a:has-text("练习模式")', '#PaperStartTimes'];
+        for (const selector of startSelectors) {
+            const btn = document.querySelector(selector);
+            if (btn) {
+                btn.click();
+                break;
+            }
+        }
+    });
+    await page.waitForTimeout(4000);
 
     // 点击背题模式
     await page.evaluate(() => {
@@ -36,7 +47,7 @@ async function run() {
     });
     await page.waitForTimeout(2000);
 
-    // 跳转到第 2 题 (共享题干案例题)
+    // 跳转到第 2 题
     console.log('跳转到第 2 题...');
     await page.evaluate(() => {
         const cardBtn = document.querySelector('.bd_dtk, #tiku_sheet, .answer-card-btn');
@@ -56,7 +67,7 @@ async function run() {
             if (el.offsetParent !== null || el.innerText.includes('解析') || el.innerText.includes('答案')) el.click();
         }));
     });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     // 抓取并打印 DOM
     const html = await page.content();
@@ -71,11 +82,15 @@ async function run() {
         const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
         let texts = [];
         for (const s of anaSelectors) {
-            document.querySelectorAll(s).forEach(el => texts.push(el.innerText.trim()));
+            document.querySelectorAll(s).forEach(el => {
+                if (el.innerText && el.innerText.trim().length > 0) {
+                    texts.push(el.innerText.trim());
+                }
+            });
         }
         return texts;
     });
-    console.log('Found analysis nodes:', analysisTexts.filter(t => t.length > 0));
+    console.log('Found analysis nodes:', analysisTexts);
 
     await browser.close();
 }

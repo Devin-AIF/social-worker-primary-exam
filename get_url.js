@@ -19,7 +19,6 @@ async function run() {
 
     console.log('访问历年真题...');
     // product_id=317 (中级社会工作实务)
-    // subject_id=?
     await page.goto('https://www.xs507.com/Tiku/Tikulist/index.html');
     await page.waitForTimeout(2000);
     const radioExists = await page.$(`input[name="change_id"][value="317"]`);
@@ -36,6 +35,8 @@ async function run() {
             const m = a.href.match(/subject_id[\/=](\d+)/);
             if (m) return m[1];
         }
+        const htmlMatch = document.body.innerHTML.match(/subject_id[\/=](\d+)/);
+        return htmlMatch ? htmlMatch[1] : '';
     });
     console.log('subject_id:', subjectId);
 
@@ -50,11 +51,21 @@ async function run() {
             return Array.from(container.querySelectorAll('a'))
                 .filter(a => a.href.includes('paper_id'))
                 .map(a => {
-                    const title = a.closest('li, tr, .item')?.querySelector('.title, .name')?.innerText.trim() || a.innerText.trim();
-                    return { title, url: a.href };
+                    const p = a.closest('li, tr, .item, .big');
+                    let title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
+                    let url = a.href;
+                    if (p) {
+                        const practiceBtn = p.querySelector('a[href*="/exam/"][href*="records_type/1"]');
+                        const examBtn = p.querySelector('a[href*="/exam/"]');
+                        const detailBtn = p.querySelector('a[href*="/detail/"]');
+                        if (practiceBtn) url = practiceBtn.href;
+                        else if (examBtn) url = examBtn.href;
+                        else if (detailBtn) url = detailBtn.href;
+                    }
+                    return { title, url };
                 });
         });
-        console.log('Chapters found:', chapters);
+        console.log('Chapters found:', chapters.filter(c => c.url.includes('14658')));
     }
 
     await browser.close();
