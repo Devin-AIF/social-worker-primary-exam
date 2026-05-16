@@ -7,76 +7,76 @@ const AUTH = {
 };
 
 async function run() {
-    console.log('启动浏览器...');
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
 
     console.log('登录...');
     await page.goto('https://www.xs507.com/Home/login/account.html?hide-tip=1');
-    await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
     await page.fill('input[placeholder*="手机号"]', AUTH.user);
     await page.fill('input[placeholder*="密码"]', AUTH.pass);
     await page.click('.login-form-btn');
     await page.waitForTimeout(3000);
 
-    const PAPER_URL = 'https://www.xs507.com/Tiku/Product/detail/paper_id/14658.html';
-    console.log(`跳转到试卷详情页 ${PAPER_URL}...`);
-    await page.goto(PAPER_URL);
+    console.log('访问历年真题列表...');
+    await page.goto('https://www.xs507.com/Tiku/Product/index/product_id/317/subject_id/128/type/1.html');
     await page.waitForTimeout(3000);
 
-    // 点击开始做题并等待导航完成
-    console.log('点击开始做题...');
-    await Promise.all([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
-        page.evaluate(() => {
-            const startSelectors = ['a.enable.a2', 'a:has-text("开始做题")', 'a:has-text("练习模式")', '#PaperStartTimes'];
-            for (const selector of startSelectors) {
-                const btn = document.querySelector(selector);
-                if (btn) {
-                    btn.click();
-                    break;
-                }
+    const paperUrl = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a'));
+        const target = links.find(a => a.href.includes('14658') && (a.innerText.includes('做题') || a.innerText.includes('练习') || a.innerText.includes('模式') || a.closest('tr')));
+        if (target) {
+            const p = target.closest('li, tr, .item, .big');
+            if (p) {
+                const practiceBtn = p.querySelector('a[href*="/exam/"][href*="records_type/1"]');
+                const examBtn = p.querySelector('a[href*="/exam/"]');
+                if (practiceBtn) return practiceBtn.href;
+                if (examBtn) return examBtn.href;
             }
-        })
-    ]);
-    console.log('导航完成，等待3秒...');
-    await page.waitForTimeout(3000);
+            return target.href;
+        }
+        return null;
+    });
 
-    // 点击背题模式
+    console.log('Paper URL:', paperUrl);
+    if (!paperUrl) {
+        await browser.close();
+        return;
+    }
+
+    await page.goto(paperUrl + (paperUrl.includes('?') ? '&again=1' : '?again=1'));
+    await page.waitForTimeout(5000);
+
+    // 选背题模式
     await page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll('a, button, span, div, li')).find(el => {
             const t = (el.innerText || '').trim(); return (t === '背题模式' || t === '背题' || t === '显示答案');
         });
         if (btn) btn.click();
     });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
-    // 跳转到第 2 题
-    console.log('跳转到第 2 题...');
+    // 跳到第二题
+    console.log('跳到第二题...');
     await page.evaluate(() => {
-        const cardBtn = document.querySelector('.bd_dtk, #tiku_sheet, .answer-card-btn');
-        if (cardBtn) cardBtn.click();
-    });
-    await page.waitForTimeout(1000);
-    await page.evaluate(() => {
-        const cards = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
-        if (cards[1]) cards[1].click(); // index 1 is question 2
+        const next = document.querySelector('.subject-next, #next_item');
+        if (next) next.click();
     });
     await page.waitForTimeout(3000);
 
-    // 触发解析
+    console.log('点击解析...');
     await page.evaluate(() => {
         const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn'];
         clickSelectors.forEach(s => document.querySelectorAll(s).forEach(el => {
             if (el.offsetParent !== null || el.innerText.includes('解析') || el.innerText.includes('答案')) el.click();
         }));
     });
-    await page.waitForTimeout(3000);
+    
+    console.log('等待 8 秒...');
+    await page.waitForTimeout(8000);
 
-    const html = await page.content();
-    fs.writeFileSync('/Users/devin_aif/debug_q2_2024.html', html);
-    console.log('保存到 debug_q2_2024.html 完成。长度:', html.length);
+    const title = await page.evaluate(() => document.querySelector('.title, .item-title, .subject-title')?.innerText || '');
+    console.log('Title:', title);
     
     const analysisTexts = await page.evaluate(() => {
         const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
@@ -90,9 +90,9 @@ async function run() {
         }
         return texts;
     });
-    console.log('Found analysis nodes:', analysisTexts);
-    console.log('Page innerText length:', await page.evaluate(() => document.body.innerText.length));
-    
+    console.log('Analysis found:');
+    analysisTexts.forEach(t => console.log(t.substring(0, 100) + '...'));
+
     await browser.close();
 }
 

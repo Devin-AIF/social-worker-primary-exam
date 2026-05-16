@@ -135,7 +135,6 @@ async function safeClick(page, selector, waitAfter = 0) {
 async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     const trigger = async () => {
         await page.evaluate(() => {
-            document.querySelectorAll('.layui-layer-shade, .layui-layer, .layerSaveSuccess, .layui-layer-close').forEach(el => el.remove());
             const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
             analysisSelectors.forEach(s => {
                 document.querySelectorAll(s).forEach(el => {
@@ -150,18 +149,18 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     };
     await handlePopup(page);
     await trigger();
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3500); // 增加硬等待时间，给网络请求充足的时间
     return await page.waitForFunction((oldFinger) => {
         const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution'];
         for (const s of sel) {
             const el = document.querySelector(s);
-            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) {
+            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析') && !el.innerText.includes('正在获取')) {
                 const currentFinger = el.innerText.trim().replace(/\s/g, '').substring(0, 100);
                 if (!oldFinger || currentFinger !== oldFinger) return true;
             }
         }
         return false;
-    }, oldAnalysisFingerprint, { timeout: 3000 }).catch(() => false);
+    }, oldAnalysisFingerprint, { timeout: 6000 }).catch(() => false);
 }
 
 async function readQuestionData(page, staleState = {}) {
