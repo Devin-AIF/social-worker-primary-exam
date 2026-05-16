@@ -34,13 +34,52 @@ async function startCrawling() {
         if (analysisBox) analysisBox.style.display = 'block';
     };
 
-    // 彻底放弃背题模式，使用正常的“做题模式”
+    // 彻底适配背题模式：不再模拟点击选项，直接读取页面已有的答案和解析
+    
+    const processContent = (el) => {
+        if (!el) return '';
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('img').forEach(img => {
+            let src = img.getAttribute('src');
+            if (src) {
+                if (src.startsWith('//')) src = 'https:' + src;
+                img.replaceWith(` ![图](${src}) `);
+            }
+        });
+        return clone.innerText.trim();
+    };
+
+    const fetchAnalysis = () => {
+        const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis'];
+        for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (el && el.innerText.trim().length > 0) {
+                let t = processContent(el);
+                t = t.replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
+                if (t && t !== '-') return t;
+            }
+        }
+        return '无解析';
+    };
+
+    const fetchAnswer = () => {
+        const selectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
+        for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (el) {
+                let t = el.innerText.replace('正确答案：', '').replace('答案：', '').trim();
+                if (t) return t;
+            }
+        }
+        return '未知';
+    };
 
     let lastStep = '';
     let consecutiveSameStep = 0; // 防卡死计数器
     
     while(true) {
         removeOverlays();
+        await sleep(600); // 等待渲染
 
         const titleEl = document.querySelector('#item_title');
         const step = document.querySelector('#item_step')?.innerText.trim() || '';
@@ -48,74 +87,31 @@ async function startCrawling() {
         if (step === lastStep && step !== '') {
             consecutiveSameStep++;
             if (consecutiveSameStep > 3) {
-                console.log('检测到连续 3 次题号未变，可能是被限制或网络卡顿，停止抓取并导出当前数据。');
+                console.log('检测到连续 3 次题号未变，停止抓取。');
                 break;
             }
         } else {
-            consecutiveSameStep = 0; // 重置
+            consecutiveSameStep = 0; 
         }
         lastStep = step;
 
-        const fetchAnalysis = () => {
-            const selectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis'];
-            for (const s of selectors) {
-                const elements = document.querySelectorAll(s);
-                // 倒序遍历，防止单页应用追加元素导致抓到前面废弃的空壳
-                for (let i = elements.length - 1; i >= 0; i--) {
-                    const el = elements[i];
-                    let t = el.innerText;
-                    if (!t || t.trim() === '') t = el.textContent;
-                    t = (t || '').replace(/^[\s\S]*?参考解析[：:\n]*\s*/, '').trim();
-                    if (t.length > 0 && t !== '-') return t;
-                }
-            }
-            return '无解析';
-        };
-
-        // 1. 模拟正常做题：直接点击第一个选项，触发判题逻辑和解析渲染
-        try {
-            const firstOpt = document.querySelector('.subject-option li');
-            if (firstOpt) { 
-                firstOpt.click(); 
-                await sleep(800); // 给网页判断对错并渲染解析的时间
-            }
-        } catch(e) {}
-
-        removeOverlays(); // 清理点击选项后可能弹出的窗口
-
-        // 2. 如果有些题库做完题后，还需要手动点击“查看解析”才展示，这里自动帮点
+        // 背题模式下，点击查看解析按钮（如果存在且没点开）
         try {
             const viewAnalysisBtn = document.querySelector('.click_analysis');
             if (viewAnalysisBtn && viewAnalysisBtn.style.display !== 'none') {
                 viewAnalysisBtn.click();
-                await sleep(400);
+                await sleep(500);
             }
         } catch(e) {}
-
-        let analysisResult = fetchAnalysis();
 
         const res = {
             type: document.querySelector('#item_type')?.innerText.trim() || '题型',
             step,
-            options: Array.from(document.querySelectorAll('#item_options li')).map(li => li.innerText.trim()).join('\n'),
-            answer: (document.querySelector('.right')?.innerText || '').replace('正确答案：', '').trim() || '未知',
-            analysis: analysisResult,
-            images: [],
-            title: ''
+            options: Array.from(document.querySelectorAll('#item_options li')).map(li => processContent(li)).join('\n'),
+            answer: fetchAnswer(),
+            analysis: fetchAnalysis(),
+            title: processContent(titleEl)
         };
-
-        if (titleEl) {
-            const clone = titleEl.cloneNode(true);
-            clone.querySelectorAll('img').forEach((img, idx) => {
-                let src = img.getAttribute('src');
-                if (src) {
-                    if (src.startsWith('//')) src = 'https:' + src;
-                    // 在控制台脚本中，直接将图片原地址或base64写入 Markdown 中
-                    img.replaceWith(` ![图](${src}) `);
-                }
-            });
-            res.title = clone.innerText.trim();
-        }
 
         questions.push(res);
         console.log(`进度: ${res.step} | 解析状态: ${res.analysis !== '无解析' ? '成功' : '失败'}`);
