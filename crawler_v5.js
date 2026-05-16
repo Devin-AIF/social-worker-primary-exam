@@ -228,14 +228,18 @@ async function readQuestionData(page, staleState = {}) {
         
         let fullAnaText = '';
         for (const s of anaSelectors) {
-            const el = document.querySelector(s);
-            if (el) {
-                const candidate = processContent(el, 'ans');
-                if (candidate && candidate.length > 5 && !candidate.includes('点击查看解析')) {
-                    fullAnaText = candidate;
-                    break;
+            const elements = document.querySelectorAll(s);
+            for (const el of elements) {
+                // 核心改动：必须是可见元素，且具有实质内容
+                if (el && el.offsetParent !== null) {
+                    const candidate = processContent(el, 'ans');
+                    if (candidate && candidate.length > 5 && !candidate.includes('点击查看解析')) {
+                        fullAnaText = candidate;
+                        break;
+                    }
                 }
             }
+            if (fullAnaText) break;
         }
 
         // 3. 解析拆分逻辑 (核心搬运自 console_crawler.js)
@@ -330,7 +334,7 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         });
         if (btn) btn.click();
     });
-    await randomSleep(3000, 5000);
+    await randomSleep(5000, 8000); // 增加初始模式切换后的等待
     await handlePopup(page);
     await waitForQuestionReady(page);
 
@@ -691,7 +695,7 @@ async function crawlSubject(page, subject) {
                         log(`跳过已抓取题号: ${curr}`, 'DEBUG');
                         const old = { step: data.step, id: data.itemId };
                         await next.click({ force: true });
-                        await waitForQuestionChange(page, old.step, old.id);
+                        await waitForQuestionChange(page, old.step, old.id, data.titleFingerprint);
                         await waitForQuestionReady(page);
                         continue;
                     }
@@ -708,7 +712,7 @@ async function crawlSubject(page, subject) {
                         log(`检测到重复题号 ${curr}，尝试前进到下一题`, 'WARN');
                         const old = { step: data.step, id: data.itemId };
                         await next.click({ force: true });
-                        await waitForQuestionChange(page, old.step, old.id);
+                        await waitForQuestionChange(page, old.step, old.id, data.titleFingerprint);
                         await waitForQuestionReady(page);
                         continue;
                     }
@@ -745,7 +749,7 @@ async function crawlSubject(page, subject) {
                     if (next) {
                         const old = { step: data.step, id: data.itemId };
                         await next.click({ force: true });
-                        await waitForQuestionChange(page, old.step, old.id);
+                        await waitForQuestionChange(page, old.step, old.id, data.titleFingerprint);
                         await waitForQuestionReady(page);
                     } else { break; }
                 } else {
