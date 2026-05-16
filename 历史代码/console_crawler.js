@@ -75,37 +75,60 @@ async function startCrawling() {
         return text.trim();
     };
 
-    const fetchAnalysis = () => {
-        const selectors = [
+    const fetchAnswerAndAnalysis = () => {
+        let finalAnswer = '未知';
+        let finalAnalysis = '无解析';
+
+        const ansSelectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
+        for (const s of ansSelectors) {
+            const el = document.querySelector(s);
+            if (el) {
+                let t = el.innerText.replace('正确答案：', '').replace('答案：', '').trim();
+                if (t) {
+                    finalAnswer = t;
+                    break;
+                }
+            }
+        }
+
+        const anaSelectors = [
             '.analysis.pd10', '#answer_analysis .analysis', '#analysis', 
             '.analysis', '.answer-yes .analysis', '.answer-wrong .analysis',
             '.item_analysis', '#item_analysis'
         ];
         
-        for (const s of selectors) {
+        let fullText = '';
+        for (const s of anaSelectors) {
             const el = document.querySelector(s);
             if (el) {
-                let t = processContent(el);
-                // 仅切除前缀，保留后面的内容（即使是“无”）
-                t = t.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n]*\s*/i, '').trim();
-                
-                if (t.length > 0) return t;
+                fullText = processContent(el);
+                if (fullText.length > 0) break;
             }
         }
-        return '无解析';
+
+        if (fullText) {
+            if (finalAnswer === '未知' && /(参考答案|正确答案)[：:\n]/.test(fullText)) {
+                const anaMatch = fullText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
+                if (anaMatch) {
+                    const parts = fullText.split(anaMatch[0]);
+                    finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnalysis = parts.slice(1).join(anaMatch[0]).trim();
+                } else if (fullText.includes('暂无解析')) {
+                    finalAnswer = fullText.split('暂无解析')[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnalysis = '无';
+                } else {
+                    finalAnswer = fullText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnalysis = '无';
+                }
+            } else {
+                finalAnalysis = fullText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim();
+                if (finalAnalysis === '') finalAnalysis = fullText;
+            }
+        }
+
+        return { answer: finalAnswer, analysis: finalAnalysis };
     };
 
-    const fetchAnswer = () => {
-        const selectors = ['.right', '.answer-yes', '#answer_right', '.correct-answer', '.subject-answer'];
-        for (const s of selectors) {
-            const el = document.querySelector(s);
-            if (el) {
-                let t = el.innerText.replace('正确答案：', '').replace('答案：', '').trim();
-                if (t) return t;
-            }
-        }
-        return '未知';
-    };
 
     let lastStep = '';
     let consecutiveSameStep = 0; // 防卡死计数器
@@ -149,14 +172,17 @@ async function startCrawling() {
             return '';
         };
 
+        const { answer, analysis } = fetchAnswerAndAnalysis();
+
         const res = {
             type: document.querySelector('#item_type')?.innerText.trim() || '题型',
             step,
             options: fetchOptions(),
-            answer: fetchAnswer(),
-            analysis: fetchAnalysis(),
+            answer: answer,
+            analysis: analysis,
             title: processContent(titleEl)
         };
+
 
         questions.push(res);
         console.log(`进度: ${res.step} | 解析状态: ${res.analysis !== '无解析' ? '成功' : '失败'}`);
