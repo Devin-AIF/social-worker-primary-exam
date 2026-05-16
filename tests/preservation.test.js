@@ -359,7 +359,7 @@ test('Substring match: isProbablyStale returns true when pool entry contains fin
 
 test('Substring match: isProbablyStale returns true when fingerprint contains pool entry as substring', () => {
     // current.includes(s) branch — both must be > 50 chars
-    const shortPoolEntry = '参考答案：第一题解析内容足够长以通过30字符阈值检查并且超过50字符的长度限制才能触发深度检查逻辑'.replace(/\s/g, '');
+    const shortPoolEntry = '参考答案：第一题解析内容足够长以通过30字符阈值检查并且超过50字符的长度限制才能触发深度检查逻辑，补充内容'.replace(/\s/g, '');
     const longFingerprint = (shortPoolEntry + '额外的内容使得当前指纹更长超过50字符').replace(/\s/g, '');
 
     assert.ok(longFingerprint.includes(shortPoolEntry), 'Prerequisite: fingerprint contains pool entry');
