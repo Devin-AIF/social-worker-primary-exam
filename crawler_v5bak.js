@@ -58,9 +58,11 @@ function getCompletedCount(filePath) {
     if (!fs.existsSync(filePath)) return 0;
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
-        const matches = content.match(/## 第 \d+ 题/g);
+        // 匹配 "## 第 X 题" 或 "### 第 X 题"，支持不同层级的标题
+        const matches = content.match(/#{2,3}\s+第\s*\d+\s*题/g);
         return matches ? matches.length : 0;
     } catch (e) {
+        log(`读取文件统计进度失败: ${e.message}`, 'WARN');
         return 0;
     }
 }
@@ -135,14 +137,13 @@ async function safeClick(page, selector, waitAfter = 0) {
 async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     const trigger = async () => {
         await page.evaluate(() => {
-            document.querySelectorAll('.layui-layer-shade, .layui-layer, .layerSaveSuccess, .layui-layer-close').forEach(el => el.remove());
             const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
             analysisSelectors.forEach(s => {
                 document.querySelectorAll(s).forEach(el => {
                     el.style.display = 'block'; el.style.visibility = 'visible'; el.style.opacity = '1';
                 });
             });
-            const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn'];
+            const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.subject-submit', '#SubjectSubmit'];
             clickSelectors.forEach(s => document.querySelectorAll(s).forEach(el => {
                 if (el.offsetParent !== null || el.innerText.includes('解析') || el.innerText.includes('答案')) el.click();
             }));
@@ -150,18 +151,24 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     };
     await handlePopup(page);
     await trigger();
-    await page.waitForTimeout(2000);
-    return await page.waitForFunction((oldFinger) => {
+    await page.waitForTimeout(3500); // 增加硬等待时间，给网络请求充足的时间
+    const result = await page.waitForFunction((oldFinger) => {
         const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution'];
         for (const s of sel) {
             const el = document.querySelector(s);
-            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析')) {
+            if (el && el.innerText.trim().length > 5 && !el.innerText.includes('点击查看解析') && !el.innerText.includes('正在获取')) {
                 const currentFinger = el.innerText.trim().replace(/\s/g, '').substring(0, 100);
                 if (!oldFinger || currentFinger !== oldFinger) return true;
             }
         }
         return false;
-    }, oldAnalysisFingerprint, { timeout: 3000 }).catch(() => false);
+    }, oldAnalysisFingerprint, { timeout: 15000 }).catch(() => false);
+    if (!result) {
+        // 2024 站点 DOM 更新较慢，若首次轮询超时则再触发一次点击并额外等待
+        await trigger();
+        await page.waitForTimeout(3000);
+    }
+    return result;
 }
 
 async function readQuestionData(page, staleState = {}) {
@@ -199,48 +206,34 @@ async function readQuestionData(page, staleState = {}) {
             if (!value) return true;
             if (isPlaceholderAnswer(value)) return true;
             if (value.includes('试题讨论') || value.includes('点击查看更多') || value.includes('没有更多了')) return true;
-            if (value.includes('问答题') || value.includes('单选题') || value.includes('多选题') || value.includes('案例题')) return true;
-            if (value.includes('答：') || value.includes('答案及')) return true;
-            if (hasStepPattern(value)) return true;
+            // 问答题的解析里确实可能包含这些词，所以只对极其简短且只包含题型词的情况进行过滤
+            if (value.length < 15 && (value.includes('问答题') || value.includes('单选题') || value.includes('多选题') || value.includes('案例题'))) return true;
+            if (hasStepPattern(value) && value.length < 20) return true;
             return false;
         };
 
-        // 即使节点里混进了 UI 文案，有时候主体答案仍然是有价值的。
-        // 所以先尽量裁掉答题区尾巴、讨论区尾巴、题号分页等噪声，再决定要不要丢弃。
         const stripUiJunk = (text) => {
             let value = (text || '').trim();
             value = value.replace(/试题讨论[\s\S]*$/g, '').trim();
             value = value.replace(/点击查看更多↓?/g, '').replace(/没有更多了/g, '').trim();
-            value = value.replace(/^\s*(问答题|单选题|多选题|案例题)\s*/g, '').trim();
             value = value.replace(/^\s*\d+\s*\/\s*\d+\s*/g, '').trim();
-            value = value.replace(/\n?\s*答：\s*$/g, '').trim();
             return value;
         };
 
-        // 判断一个候选文本是否“很像历史残留内容”。
-        // 这里同时对比上一题解析指纹和历史指纹池，防止两种串题：
-        // 1. 解析区没刷新，直接沿用上一题解析
-        // 2. 解析由于某种原因复现了数题之前的缓存内容
         const isProbablyStale = (fingerprint) => {
             if (!fingerprint || fingerprint.length < 10) return false;
             
-            // 豁免逻辑：如果是共享题干的案例题，或者题干前50个字符与上一题一致，说明它们是同一个大题的子题目，共享解析是合理的。
             const isSharedCase = itemType.includes('共享题干') || (oldTitleFingerprint && titleFingerprint && oldTitleFingerprint.substring(0, 50) === titleFingerprint.substring(0, 50));
             if (isSharedCase) return false;
 
             const current = String(fingerprint);
-            
-            // 基础检查：对比上一题解析区
             if (oldAnalysisFingerprint && current === oldAnalysisFingerprint) return true;
 
-            // 深度检查：对比历史成功指纹池（仅对有一定长度的主观内容生效，避免误伤简单的客观题答案）
-            if (current.length > 30 && Array.isArray(staleFingerprints)) {
+            if (current.length > 50 && Array.isArray(staleFingerprints)) {
                 return staleFingerprints.some(stale => {
                     const s = String(stale);
-                    if (s.length < 30) return false;
-                    if (current === s) return true;
-                    if (current.length > 50 && s.length > 50 && (current.includes(s) || s.includes(current))) return true;
-                    return false;
+                    // 只有完全一致才判定为串题，避免 includes 导致的误伤（主观题解析容易部分重合）
+                    return current === s;
                 });
             }
             return false;
@@ -303,13 +296,22 @@ async function readQuestionData(page, staleState = {}) {
 
         // 解析容器按“更像真实解析”的优先级排列。
         // 注意这里故意保留了一些宽松兜底选择器，因为不同章节/题型的 DOM 结构并不统一。
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer', '.subject-analysis', '.subject-answer-box'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const elements = Array.from(document.querySelectorAll(s));
             for (let i = elements.length - 1; i >= 0; i--) {
                 const el = elements[i];
                 const rawText = (el.innerText || el.textContent || '').trim();
+                
+                // --- DEBUG 14658 Q2 RAW TEXT ---
+                const stepTxt = document.querySelector('#item_step, .item-step')?.innerText || '';
+                const titleTxt = document.querySelector('.title, .item-title, .subject-title')?.innerText || '';
+                if (stepTxt.includes('2/')) {
+                    console.log(`[DEBUG Q2] titleTxt: ${titleTxt.substring(0,30)}, selector: ${s}, rawLength: ${rawText.length}`);
+                }
+                // -------------------------------
+
                 if (!rawText || rawText.length < 5 || rawText.includes('点击查看解析')) continue;
 
                 const currentFingerprint = rawText.replace(/\s/g, '').substring(0, 100);
@@ -341,23 +343,37 @@ async function readQuestionData(page, staleState = {}) {
         }
 
         if (fullAnaText) {
-            if (finalAnswer === '未知' && /(参考答案|正确答案)[：:\n]/.test(fullAnaText)) {
-                const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
-                if (anaMatch) {
-                    const parts = fullAnaText.split(anaMatch[0]);
-                    finalAnswer = stripUiJunk(parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
-                    finalAnalysis = stripUiJunk(parts.slice(1).join(anaMatch[0]).trim());
-                } else if (fullAnaText.includes('暂无解析')) {
-                    finalAnswer = stripUiJunk(fullAnaText.split('暂无解析')[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
+            // 如果解析区包含了“参考答案”或“正确答案”等关键字，优先尝试从中切分出结构化答案
+            const answerMatch = fullAnaText.match(/(?:【?\s*参考答案\s*】?|【?\s*正确答案\s*】?|【?\s*参考答案及解析\s*】?)[：:\n\s]*/);
+            if (answerMatch) {
+                const afterAnswer = fullAnaText.split(answerMatch[0])[1];
+                // 在答案之后寻找“解析”关键字，进一步细分
+                const analysisMatch = afterAnswer.match(/(?:【?\s*参考解析\s*】?|【?\s*题目解析\s*】?|【?\s*答案解析\s*】?|【?\s*解析\s*】?)[：:\n\s]*/);
+                
+                if (analysisMatch) {
+                    const parts = afterAnswer.split(analysisMatch[0]);
+                    finalAnswer = stripUiJunk(parts[0].trim());
+                    finalAnalysis = stripUiJunk(parts.slice(1).join(analysisMatch[0]).trim());
+                } else if (afterAnswer.includes('暂无解析')) {
+                    // 处理“参考答案：XXX 暂无解析”的情况
+                    finalAnswer = stripUiJunk(afterAnswer.split('暂无解析')[0].trim());
                     finalAnalysis = '无';
                 } else {
-                    finalAnswer = stripUiJunk(fullAnaText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim());
+                    // 只有“参考答案”，没有解析标志
+                    finalAnswer = stripUiJunk(afterAnswer.trim());
                     finalAnalysis = '无';
                 }
             } else {
-                finalAnalysis = stripUiJunk(fullAnaText.replace(/^[\s\S]*?(参考解析|题目解析|答案解析|解析)[：:\n\s]*/i, '').trim());
+                // 如果没有检测到明确的“参考答案”引导词，则整体作为解析处理
+                finalAnalysis = stripUiJunk(fullAnaText.replace(/(?:【?\s*参考解析\s*】?|【?\s*题目解析\s*】?|【?\s*答案解析\s*】?|【?\s*解析\s*】?)[：:\n\s]*/i, '').trim());
                 if (finalAnalysis === '') finalAnalysis = fullAnaText;
             }
+        }
+
+        // 剔除内容中的“暂无解析”垃圾后缀
+        if (finalAnalysis && finalAnalysis.includes('暂无解析')) {
+            finalAnalysis = finalAnalysis.replace(/暂无解析\s*$/g, '').trim();
+            if (finalAnalysis === '') finalAnalysis = '无';
         }
 
         // 客观题通常能从独立答案节点里直接拿到 ABCD；
@@ -396,9 +412,11 @@ async function readQuestionData(page, staleState = {}) {
 
         if (isPlaceholderAnswer(finalAnswer)) finalAnswer = '未知';
         if (looksLikeUiJunk(finalAnswer)) finalAnswer = '未知';
-        // 主观题里如果“答案”是一大段长文本，通常说明它其实是误抓了整块答题区。
-        // 这时宁可把 answer 置为未知，也把完整内容留在 analysis 里，避免污染结构化输出。
-        if (isSubjective && finalAnswer !== '未知' && finalAnswer.length > 20) finalAnswer = '未知';
+        // 对于主观题，如果抓到的答案太长，且不是明确从“参考答案”引导词后切分出来的，
+        // 则很有可能是误抓了整个答题区，这时重置为未知以保证输出美观。
+        if (isSubjective && finalAnswer !== '未知' && finalAnswer.length > 300) {
+             finalAnswer = '未知';
+        }
         if (isSubjective && finalAnalysis !== '无解析' && finalAnalysis !== '无解析 (抓取冲突已拦截)' && finalAnalysis.length < 5) {
             finalAnalysis = fullAnaText || finalAnalysis;
         }
@@ -745,18 +763,24 @@ async function crawlSubject(page, subject) {
                 });
 
                 // 第一层补救：
-                // 如果当前题读到的是“无解析”或被判定为冲突拦截，先在当前题原地重触发一次解析。
+                // 如果当前题读到的是“无解析”或被判定为冲突拦截，循环重试最多3次（延迟递增），
+                // 给 2024 站点足够时间将上一题残留的 DOM 替换为当前题的真实解析。
                 if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint) {
-                    await handlePopup(page);
-                    await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-                    await randomSleep(1200, 2200);
-                    const retried = await readQuestionData(page, {
-                        oldAnalysisFingerprint: lastAnalysisFingerprint,
-                        staleFingerprints: staleFingerprints,
-                        oldTitleFingerprint: lastTitleFingerprint
-                    });
-                    if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
-                        data = retried;
+                    const MAX_STALE_RETRIES = 3;
+                    const STALE_RETRY_DELAYS = [2000, 4000, 6000];
+                    for (let attempt = 0; attempt < MAX_STALE_RETRIES; attempt++) {
+                        await handlePopup(page);
+                        await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+                        await randomSleep(STALE_RETRY_DELAYS[attempt], STALE_RETRY_DELAYS[attempt] + 1000);
+                        const retried = await readQuestionData(page, {
+                            oldAnalysisFingerprint: lastAnalysisFingerprint,
+                            staleFingerprints: staleFingerprints,
+                            oldTitleFingerprint: lastTitleFingerprint
+                        });
+                        if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
+                            data = retried;
+                            break;
+                        }
                     }
                 }
                 const [curr, totalNum] = data.step.split('/').map(Number);
@@ -781,6 +805,13 @@ async function crawlSubject(page, subject) {
                 // 这时不直接落盘，而是原地再触发一次重新读。
                 const isSharedCaseMain = data.type.includes('共享题干') || (lastTitleFingerprint && data.titleFingerprint && lastTitleFingerprint.substring(0, 50) === data.titleFingerprint.substring(0, 50));
                 const isRepeatedInHistory = !isSharedCaseMain && data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
+                
+                // --- DEBUG 14658 ---
+                if (chapter.id.includes('14658')) {
+                    fs.appendFileSync('debug_14658.log', `[Q${curr}] Title: ${data.title.substring(0,20)}\nType: ${data.type}\nisSharedCaseMain: ${isSharedCaseMain}\nisRepeatedInHistory: ${isRepeatedInHistory}\nAnalysis: ${data.analysis.substring(0,100)}\nstaleFingerprints: ${JSON.stringify(staleFingerprints)}\nresolvedFingerprint: ${data.resolvedFingerprint}\n\n`);
+                }
+                // -------------------
+
                 if (isRepeatedInHistory && data.titleFingerprint !== lastTitleFingerprint) {
                     log(`检测到跨题复用了历史答案/解析，正在重试当前题: ${data.step}`, 'WARN');
                     await handlePopup(page);
@@ -834,9 +865,11 @@ async function crawlSubject(page, subject) {
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
                 // 更新历史指纹池：仅记录有意义的长指纹，且维持最近3个。
-                if (data.resolvedFingerprint && data.resolvedFingerprint.length > 30) {
-                    if (!staleFingerprints.includes(data.resolvedFingerprint)) {
-                        staleFingerprints.push(data.resolvedFingerprint);
+                // 去掉 "answer|" 前缀，只存解析部分，避免 isProbablyStale 的 s.includes(current) 误判。
+                const analysisOnlyFingerprint = data.resolvedFingerprint.replace(/^[^|]*\|/, '');
+                if (analysisOnlyFingerprint && analysisOnlyFingerprint.length > 30) {
+                    if (!staleFingerprints.includes(analysisOnlyFingerprint)) {
+                        staleFingerprints.push(analysisOnlyFingerprint);
                         if (staleFingerprints.length > 3) staleFingerprints.shift();
                     }
                 }
@@ -872,9 +905,17 @@ async function crawlSubject(page, subject) {
 
 async function run() {
     log('正在开启 V5.0 全自动增强版...', 'INFO');
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ 
+        headless: false, 
+        args: [
+            '--proxy-server="direct://"', 
+            '--proxy-bypass-list=*',
+            '--disable-blink-features=AutomationControlled'
+        ] 
+    });
     const context = await browser.newContext();
     const page = await context.newPage();
+    page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
 
     try {
         log('尝试自动登录...', 'INFO');
@@ -890,11 +931,7 @@ async function run() {
     if (fs.existsSync(STATUS_FILE)) { try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch(e) {} }
 
     const ALL_SUBJECTS = [
-        { name: '2026年初级社会工作者《初级社会工作实务》考试题库', productId: '1525' },
-        { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' },
-        { name: '2026年中级社会工作者《中级社会工作法规与政策》考试题库', productId: '39' },
-        { name: '2026年中级社会工作者《中级社会工作综合能力》考试题库', productId: '316' },
-        { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
+        { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' }
     ];
 
     for (const subject of ALL_SUBJECTS) {
