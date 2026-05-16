@@ -95,22 +95,6 @@ async function installDomGuard(page) {
         const cleanup = () => {
             const popups = ['.layerSaveSuccess', '.layui-layer-shade', '.layui-layer', '#video_analysis_ratelimit_overlay', '.layerFeedback', '#popup_box_bg', '.mask', '.loading-mask'];
             popups.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
-
-            // 强制显示解析区域
-            const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
-            analysisSelectors.forEach(s => {
-                document.querySelectorAll(s).forEach(el => {
-                    el.style.display = 'block';
-                    el.style.visibility = 'visible';
-                    el.style.opacity = '1';
-                });
-            });
-
-            document.querySelectorAll('[style*="display: none"]').forEach(el => {
-                if (el.id !== 'item_star' && !String(el.className || '').includes('show_child fr')) {
-                    el.style.display = 'block';
-                }
-            });
         };
 
         cleanup();
@@ -138,20 +122,30 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
             // 移除干扰弹窗
             document.querySelectorAll('.layui-layer-shade, .layui-layer, .layerSaveSuccess, .layui-layer-close').forEach(el => el.remove());
             
-            // 强制显示解析区域
-            const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
-            analysisSelectors.forEach(s => {
-                document.querySelectorAll(s).forEach(el => {
-                    el.style.display = 'block'; el.style.visibility = 'visible'; el.style.opacity = '1';
-                });
-            });
+            // 检查当前是否已经显示了有实质内容的解析
+            const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content'];
+            let hasVisibleAnalysis = false;
+            for (const s of anaSelectors) {
+                const el = document.querySelector(s);
+                if (el && el.offsetParent !== null && el.innerText.trim().length > 10) {
+                    hasVisibleAnalysis = true;
+                    break;
+                }
+            }
 
-            // 点击查看解析按钮 (参考 console_crawler.js)
+            // 如果已经显示了，就不要再去乱点按钮了，防止“收起解析”
+            if (hasVisibleAnalysis) return;
+
+            // 只有没显示时，才去寻找“展开”类的按钮
             const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn'];
             clickSelectors.forEach(s => {
                 const btns = document.querySelectorAll(s);
                 btns.forEach(btn => {
-                    if (btn.offsetParent !== null || btn.innerText.includes('解析') || btn.innerText.includes('答案')) {
+                    const text = (btn.innerText || '').trim();
+                    // 严禁点击包含“收起”字样的按钮
+                    if (text.includes('收起')) return;
+                    
+                    if (btn.offsetParent !== null || text.includes('解析') || text.includes('答案')) {
                         btn.click();
                     }
                 });
@@ -289,17 +283,26 @@ async function readQuestionData(page, staleState = {}) {
 
 // --- 导航与流控 (恢复 V4 稳健架构) ---
 
-async function waitForQuestionChange(page, oldStep, oldItemId) {
-    await page.waitForFunction(({ oldStep, oldItemId }) => {
+async function waitForQuestionChange(page, oldStep, oldItemId, oldTitleFingerprint = '') {
+    await page.waitForFunction(({ oldStep, oldItemId, oldTitleFingerprint }) => {
         const currentStep = (document.querySelector('#item_step, .item-step')?.innerText || '').trim();
         const currentId = (document.querySelector('#item_id')?.innerText || '').trim();
-        return (currentStep && currentStep !== oldStep) || (currentId && currentId !== oldItemId);
-    }, { oldStep, oldItemId }, { timeout: 12000 }).catch(() => {});
+        const currentTitle = (document.querySelector('#item_title, .item-title, .subject-title')?.innerText || '').trim();
+        const currentTitleFp = currentTitle.replace(/\s/g, '').substring(0, 50);
+
+        const stepChanged = currentStep && currentStep !== oldStep;
+        const idChanged = currentId && currentId !== oldItemId;
+        const titleChanged = currentTitleFp && currentTitleFp !== oldTitleFingerprint;
+
+        return stepChanged || idChanged || titleChanged;
+    }, { oldStep, oldItemId, oldTitleFingerprint }, { timeout: 12000 }).catch(() => {});
+    
     await page.waitForFunction(() => {
         const el = document.querySelector('#item_title, .item-title, .subject-title');
         return el && el.innerText.trim().length > 0;
     }, { timeout: 5000 }).catch(() => {});
-    await randomSleep(1000, 1500); 
+    
+    await randomSleep(1500, 2000); 
 }
 
 async function waitForQuestionReady(page) {
