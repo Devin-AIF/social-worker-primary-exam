@@ -278,13 +278,30 @@ async function handlePopup(page) {
             '.layerSaveSuccess', 
             '#popup_box_bg',
             '.mask',
-            '.loading-mask'
+            '.loading-mask',
+            '.hide', // 有些遮罩直接叫 hide
+            '.analysis-lock'
         ];
         shades.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.remove());
         });
 
-        // 2. 核心：内容识别弹窗处理 (Layui 框架下解析通常在 layer 里)
+        // 2. 暴力解除隐藏类和存储限制（源自 console_crawler.js）
+        try {
+            localStorage.clear();
+            sessionStorage.clear();
+            // 移除所有带有 hide 类的元素的 hide 类，特别是解析相关的
+            const hiddenElements = document.querySelectorAll('.hide, .hidden, [style*="display: none"]');
+            hiddenElements.forEach(el => {
+                if (el.innerText.includes('解析') || el.innerText.includes('答案') || el.classList.contains('analysis')) {
+                    el.classList.remove('hide', 'hidden');
+                    el.style.display = 'block';
+                    el.style.visibility = 'visible';
+                }
+            });
+        } catch(e) {}
+
+        // 3. 核心：内容识别弹窗处理 (Layui 框架下解析通常在 layer 里)
         const containers = ['.layui-layer', '.popup-box', '#popup_box', '.layer-anim'];
         containers.forEach(s => {
             document.querySelectorAll(s).forEach(el => {
@@ -309,7 +326,7 @@ async function handlePopup(page) {
             });
         });
 
-        // 3. 重置可能的反爬 JS 变量
+        // 4. 重置可能的反爬 JS 变量
         try {
             window.is_ratelimit = false;
             if (window.video_analysis_ratelimit_timer) {
@@ -318,6 +335,10 @@ async function handlePopup(page) {
             // 尝试破解频率限制
             if (typeof reset_ratelimit === 'function') reset_ratelimit();
             if (typeof unlockAnalysis === 'function') unlockAnalysis();
+            if (typeof showAnalysis === 'function') showAnalysis(); // 尝试触发内置显示函数
+        } catch(e) {}
+    });
+}
         } catch (e) {}
     });
 }
