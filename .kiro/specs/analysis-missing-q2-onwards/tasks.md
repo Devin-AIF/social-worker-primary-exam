@@ -38,7 +38,7 @@
   - Mark task complete when tests are written, run, and passing on unfixed code
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 3. Fix for stale DOM causing "无解析" on Q2 onwards in 2024 papers
+- [x] 3. Fix for stale DOM causing "无解析" on Q2 onwards in 2024 papers
 
   - [x] 3.1 Change 1 — Extend `triggerOfficialAnalysis` poll timeout and add re-fire on timeout
     - In `crawler_v5.js`, locate `triggerOfficialAnalysis` (around line 130)
@@ -73,7 +73,7 @@
     - _Preservation: FIFO eviction logic (max 3 entries) unchanged; deduplication check unchanged; 30-char threshold unchanged_
     - _Requirements: 2.2, 3.5, 3.6_
 
-  - [-] 3.4 Verify bug condition exploration test now passes
+  - [x] 3.4 Verify bug condition exploration test now passes
     - **Property 1: Expected Behavior** - Stale DOM Triggers Wait-and-Retry, Not Immediate "无解析"
     - **IMPORTANT**: Re-run the SAME test from task 1 — do NOT write a new test
     - The test from task 1 encodes the expected behavior: when `isBugCondition(X)` is true, the fixed crawler waits for DOM update and only records "无解析" after all retries are genuinely exhausted
@@ -81,14 +81,14 @@
     - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed — the multi-retry loop and extended timeout now give the 2024 site enough time to load Q2's analysis)
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-  - [ ] 3.5 Verify preservation tests still pass
+  - [x] 3.5 Verify preservation tests still pass
     - **Property 2: Preservation** - Non-Buggy Inputs Produce Identical Results
     - **IMPORTANT**: Re-run the SAME tests from task 2 — do NOT write new tests
     - Run: `node tests/preservation.test.js`
     - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions — 2025 papers, Q1, shared-case exemption, FIFO eviction, and second-layer retry all behave identically to unfixed code)
     - Confirm all tests still pass after fix (no regressions)
 
-- [ ] 4. Checkpoint — Ensure all tests pass
+- [-] 4. Checkpoint — Ensure all tests pass
   - Run both test files: `node tests/bug-condition.test.js && node tests/preservation.test.js`
   - Confirm Property 1 (Bug Condition) test passes — bug is fixed
   - Confirm Property 2 (Preservation) tests pass — no regressions
