@@ -310,6 +310,13 @@ async function readQuestionData(page, staleState = {}) {
             for (let i = elements.length - 1; i >= 0; i--) {
                 const el = elements[i];
                 const rawText = (el.innerText || el.textContent || '').trim();
+                
+                // --- DEBUG 14658 Q2 RAW TEXT ---
+                if (document.querySelector('#item_step, .item-step')?.innerText.includes('2/') && document.querySelector('.title, .item-title, .subject-title')?.innerText.includes('在街道召开的多方协商会议中')) {
+                    console.log(`[DEBUG Q2] Selector ${s} rawText length: ${rawText.length}, starts with: ${rawText.substring(0, 50)}`);
+                }
+                // -------------------------------
+
                 if (!rawText || rawText.length < 5 || rawText.includes('点击查看解析')) continue;
 
                 const currentFingerprint = rawText.replace(/\s/g, '').substring(0, 100);
@@ -881,9 +888,10 @@ async function crawlSubject(page, subject) {
 
 async function run() {
     log('正在开启 V5.0 全自动增强版...', 'INFO');
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
+    page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
 
     try {
         log('尝试自动登录...', 'INFO');
