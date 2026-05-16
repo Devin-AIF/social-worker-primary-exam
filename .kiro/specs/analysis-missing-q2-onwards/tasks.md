@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [-] 1. Write bug condition exploration test
+- [x] 1. Write bug condition exploration test
   - **Property 1: Bug Condition** - Stale DOM Substring Match Causes Immediate "无解析" on Q2+
   - **CRITICAL**: This test MUST FAIL on unfixed code — failure confirms the bug exists
   - **DO NOT attempt to fix the test or the code when it fails**
@@ -18,7 +18,7 @@
   - Mark task complete when test is written, run, and failure is documented
   - _Requirements: 1.1, 1.2, 1.3_
 
-- [ ] 2. Write preservation property tests (BEFORE implementing fix)
+- [-] 2. Write preservation property tests (BEFORE implementing fix)
   - **Property 2: Preservation** - Non-Buggy Inputs Produce Identical Results
   - **IMPORTANT**: Follow observation-first methodology — observe UNFIXED code behavior for non-buggy inputs first
   - Create test file at `tests/preservation.test.js` using Node.js built-in `assert`

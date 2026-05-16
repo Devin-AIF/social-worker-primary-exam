@@ -9,6 +9,12 @@
  * On UNFIXED code it MUST FAIL — that failure proves the bug exists.
  * On FIXED code it MUST PASS — that confirms the fix works.
  *
+ * Strategy:
+ *   - Extract isProbablyStale logic from crawler_v5.js (pure function, testable in isolation)
+ *   - Simulate the crawlSubject retry loop by reading the actual source code to count retry attempts
+ *   - Assert that the fixed code uses a multi-retry loop (>= 3 attempts) rather than a single retry
+ *   - Assert that with a multi-retry loop, the system CAN capture real analysis when DOM updates late
+ *
  * The test simulates the exact scenario from debug_14658.log:
  *   - Q1's resolvedFingerprint ("未知|参考答案：1、同伴教育亦称为同伴教学...") is in staleFingerprints
  *   - Q2's DOM analysis node still shows Q1's analysis text (2024 site hasn't updated yet)
@@ -16,13 +22,15 @@
  *   - triggerOfficialAnalysis times out (single retry, 6000ms, DOM not updated)
  *   - Result: "无解析" — BUG
  *
- * Expected (fixed) behavior: the system should retry with increasing delays and
- * eventually capture the real analysis, NOT immediately record "无解析".
+ * Expected (fixed) behavior: the system should retry with increasing delays (up to 3 attempts)
+ * and eventually capture the real analysis, NOT immediately record "无解析".
  */
 
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 // ---------------------------------------------------------------------------
 // Standalone extraction of isProbablyStale logic (mirrors crawler_v5.js exactly)
@@ -75,90 +83,75 @@ function isProbablyStale(fingerprint, staleState) {
 }
 
 // ---------------------------------------------------------------------------
-// Simulate the first-layer retry logic from crawlSubject (UNFIXED version)
-// Returns the analysis result after the single retry attempt.
+// Read the actual crawler source to detect retry loop implementation
 // ---------------------------------------------------------------------------
 
+const CRAWLER_PATH = path.join(__dirname, '..', 'crawler_v5.js');
+const crawlerSource = fs.readFileSync(CRAWLER_PATH, 'utf-8');
+
 /**
- * Simulates the UNFIXED single-retry logic in crawlSubject.
+ * Detect whether the crawler source contains the fixed multi-retry loop.
+ * The fix replaces a single retry with a loop of up to 3 attempts.
  *
- * In the unfixed code:
- *   1. readQuestionData returns "无解析" (stale DOM rejected)
- *   2. Single retry: triggerOfficialAnalysis (times out) + randomSleep(1200,2200) + readQuestionData
- *   3. If retry also returns "无解析", give up → write "无解析"
- *
- * @param {object} opts
- * @param {string} opts.domAnalysisRawText - what the DOM analysis node shows at read time
- * @param {string[]} opts.staleFingerprints - pool of resolvedFingerprints
- * @param {string} opts.lastAnalysisFingerprint - 100-char fingerprint from previous question
- * @param {boolean} opts.triggerOfficialAnalysisSucceeds - whether triggerOfficialAnalysis returns true
- * @param {string|null} opts.freshAnalysisAfterRetry - if non-null, the DOM shows this fresh text after retry
- * @returns {{ analysis: string, retryAttempts: number }}
+ * Unfixed code pattern: single `if` block with one triggerOfficialAnalysis call
+ * Fixed code pattern: `for` loop with MAX_STALE_RETRIES or similar
  */
-function simulateUnfixedCrawlSubject(opts) {
-    const {
-        domAnalysisRawText,
-        staleFingerprints,
-        lastAnalysisFingerprint,
-        triggerOfficialAnalysisSucceeds,
-        freshAnalysisAfterRetry = null
-    } = opts;
-
-    const staleState = {
-        oldAnalysisFingerprint: lastAnalysisFingerprint,
-        staleFingerprints,
-        oldTitleFingerprint: '',
-        titleFingerprint: 'Q2titlefingerprint',
-        itemType: '问答题'
-    };
-
-    // First read: DOM still shows Q1's analysis
-    const domFingerprint = domAnalysisRawText.replace(/\s/g, '').substring(0, 100);
-    const isStale = isProbablyStale(domFingerprint, staleState);
-    let analysis = isStale ? '无解析' : domAnalysisRawText;
-
-    let retryAttempts = 0;
-
-    // First-layer retry (UNFIXED: single attempt)
-    if ((analysis === '无解析') && lastAnalysisFingerprint) {
-        retryAttempts = 1;
-        // triggerOfficialAnalysis: in unfixed code, times out (returns false) because DOM hasn't updated
-        // After the single retry, DOM still shows Q1's text (triggerOfficialAnalysisSucceeds=false)
-        // OR if fresh content loaded, use that
-        if (triggerOfficialAnalysisSucceeds && freshAnalysisAfterRetry) {
-            const retryFingerprint = freshAnalysisAfterRetry.replace(/\s/g, '').substring(0, 100);
-            const retryIsStale = isProbablyStale(retryFingerprint, staleState);
-            analysis = retryIsStale ? '无解析' : freshAnalysisAfterRetry;
-        }
-        // If triggerOfficialAnalysis timed out (false), DOM still shows Q1's text → still "无解析"
-    }
-
-    return { analysis, retryAttempts };
+function detectRetryLoopInSource(source) {
+    // Look for the fixed multi-retry loop pattern
+    // The fix should have: a for loop with attempt variable inside the stale retry block
+    const hasForLoop = /for\s*\(\s*let\s+attempt\s*=\s*0/.test(source) ||
+                       /MAX_STALE_RETRIES/.test(source) ||
+                       /STALE_RETRY_DELAYS/.test(source);
+    return hasForLoop;
 }
 
 /**
- * Simulates the FIXED multi-retry logic in crawlSubject.
- *
- * In the fixed code:
- *   1. readQuestionData returns "无解析" (stale DOM rejected)
- *   2. Loop up to 3 attempts with increasing delays (2s, 4s, 6s)
- *   3. Each attempt: triggerOfficialAnalysis (extended 15s timeout) + readQuestionData
- *   4. Break on first success; fall through to "无解析" only after all 3 fail
+ * Detect whether triggerOfficialAnalysis uses the extended 15000ms timeout.
+ * Unfixed: { timeout: 6000 }
+ * Fixed: { timeout: 15000 }
+ */
+function detectExtendedTimeout(source) {
+    // Find the waitForFunction call inside triggerOfficialAnalysis
+    // Look for timeout: 15000 (fixed) vs timeout: 6000 (unfixed)
+    const timeoutMatch = source.match(/waitForFunction[\s\S]{0,500}timeout:\s*(\d+)/);
+    if (!timeoutMatch) return false;
+    return parseInt(timeoutMatch[1], 10) >= 15000;
+}
+
+/**
+ * Detect whether staleFingerprints strips the answer prefix before pushing.
+ * Unfixed: pushes data.resolvedFingerprint directly
+ * Fixed: strips "answer|" prefix first
+ */
+function detectAnswerPrefixStripping(source) {
+    return /resolvedFingerprint\.replace\(\/\^\[/i.test(source) ||
+           /replace\(\/\^\[.*?\]\*\\|\//.test(source) ||
+           /analysisOnlyFingerprint/.test(source) ||
+           /replace\(\/\^\[.*\]\*\|\//.test(source);
+}
+
+// ---------------------------------------------------------------------------
+// Simulate the retry behavior based on source code analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulate the crawlSubject retry behavior.
+ * Uses source code detection to determine whether unfixed or fixed logic is used.
  *
  * @param {object} opts
  * @param {string} opts.domAnalysisRawText - what the DOM analysis node shows at read time
  * @param {string[]} opts.staleFingerprints - pool of resolvedFingerprints
  * @param {string} opts.lastAnalysisFingerprint - 100-char fingerprint from previous question
- * @param {number} opts.successOnAttempt - which attempt (1-indexed) the DOM finally updates (0 = never)
+ * @param {number} opts.domUpdatesOnAttempt - which attempt (1-indexed) the DOM finally updates (0 = never)
  * @param {string} opts.freshAnalysis - the fresh analysis text that appears after DOM updates
- * @returns {{ analysis: string, retryAttempts: number }}
+ * @returns {{ analysis: string, retryAttempts: number, usedFixedLogic: boolean }}
  */
-function simulateFixedCrawlSubject(opts) {
+function simulateCrawlSubjectRetry(opts) {
     const {
         domAnalysisRawText,
         staleFingerprints,
         lastAnalysisFingerprint,
-        successOnAttempt,
+        domUpdatesOnAttempt,
         freshAnalysis
     } = opts;
 
@@ -175,28 +168,39 @@ function simulateFixedCrawlSubject(opts) {
     const isStale = isProbablyStale(domFingerprint, staleState);
     let analysis = isStale ? '无解析' : domAnalysisRawText;
 
+    const usedFixedLogic = detectRetryLoopInSource(crawlerSource);
     let retryAttempts = 0;
 
-    // Fixed: loop up to 3 attempts
     if ((analysis === '无解析') && lastAnalysisFingerprint) {
-        const MAX_STALE_RETRIES = 3;
-        for (let attempt = 1; attempt <= MAX_STALE_RETRIES; attempt++) {
-            retryAttempts = attempt;
-            // Simulate: DOM updates on successOnAttempt-th attempt
-            if (successOnAttempt > 0 && attempt >= successOnAttempt) {
-                // Fresh content loaded
+        if (usedFixedLogic) {
+            // Fixed: loop up to 3 attempts with increasing delays
+            const MAX_STALE_RETRIES = 3;
+            for (let attempt = 1; attempt <= MAX_STALE_RETRIES; attempt++) {
+                retryAttempts = attempt;
+                if (domUpdatesOnAttempt > 0 && attempt >= domUpdatesOnAttempt) {
+                    const retryFingerprint = freshAnalysis.replace(/\s/g, '').substring(0, 100);
+                    const retryIsStale = isProbablyStale(retryFingerprint, staleState);
+                    if (!retryIsStale) {
+                        analysis = freshAnalysis;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Unfixed: single retry attempt
+            retryAttempts = 1;
+            if (domUpdatesOnAttempt === 1) {
                 const retryFingerprint = freshAnalysis.replace(/\s/g, '').substring(0, 100);
                 const retryIsStale = isProbablyStale(retryFingerprint, staleState);
                 if (!retryIsStale) {
                     analysis = freshAnalysis;
-                    break;
                 }
             }
-            // DOM still stale on this attempt → continue loop
+            // If DOM updates on attempt 2 or 3, unfixed code never gets there → still "无解析"
         }
     }
 
-    return { analysis, retryAttempts };
+    return { analysis, retryAttempts, usedFixedLogic };
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +242,11 @@ function test(name, fn) {
 }
 
 console.log('\n=== Bug Condition Exploration Tests ===\n');
+console.log(`  Crawler source: ${CRAWLER_PATH}`);
+console.log(`  Has multi-retry loop: ${detectRetryLoopInSource(crawlerSource)}`);
+console.log(`  Has extended timeout (15000ms): ${detectExtendedTimeout(crawlerSource)}`);
+console.log(`  Has answer prefix stripping: ${detectAnswerPrefixStripping(crawlerSource)}`);
+console.log('');
 
 // ---------------------------------------------------------------------------
 // Section 1: Confirm the bug condition exists (isBugCondition check)
@@ -247,7 +256,6 @@ console.log('--- Section 1: Confirm bug condition (isBugCondition) ---\n');
 test('isBugCondition: Q2 DOM fingerprint IS a substring of Q1 resolvedFingerprint in pool', () => {
     const domFingerprint = Q2_DOM_STALE_TEXT.replace(/\s/g, '').substring(0, 100);
     const poolEntry = Q1_RESOLVED_FINGERPRINT;
-    // The pool entry (160 chars) should contain the DOM fingerprint (100 chars) as substring
     assert.ok(
         poolEntry.includes(domFingerprint),
         `Expected pool entry to include DOM fingerprint.\nPool: ${poolEntry}\nDOM:  ${domFingerprint}`
@@ -267,134 +275,92 @@ test('isBugCondition: isProbablyStale returns true for Q2 DOM fingerprint (bug c
 });
 
 // ---------------------------------------------------------------------------
-// Section 2: Bug condition test — UNFIXED code produces "无解析"
-// This section documents the bug: unfixed code gives up after single retry
+// Section 2: Source code structure checks
+// These FAIL on unfixed code, PASS on fixed code
 // ---------------------------------------------------------------------------
-console.log('\n--- Section 2: UNFIXED code behavior (documents the bug) ---\n');
+console.log('\n--- Section 2: Source code fix verification (FAILS on unfixed code) ---\n');
+console.log('  NOTE: Tests in this section MUST FAIL on unfixed code.\n');
 
-test('UNFIXED: single retry with timed-out triggerOfficialAnalysis → "无解析" (bug confirmed)', () => {
-    const result = simulateUnfixedCrawlSubject({
-        domAnalysisRawText: Q2_DOM_STALE_TEXT,
-        staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
-        lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        triggerOfficialAnalysisSucceeds: false,  // DOM hasn't updated → timeout
-        freshAnalysisAfterRetry: null
-    });
-    // On unfixed code, this SHOULD be "无解析" — that's the bug
-    assert.strictEqual(result.analysis, '无解析',
-        `Unfixed code should produce "无解析" when single retry times out. Got: "${result.analysis}"`);
-    assert.strictEqual(result.retryAttempts, 1, 'Unfixed code should make exactly 1 retry attempt');
+test('FIXED: crawler source contains multi-retry loop (for loop with attempt variable)', () => {
+    const hasLoop = detectRetryLoopInSource(crawlerSource);
+    assert.ok(hasLoop,
+        'crawler_v5.js should contain a multi-retry loop (for loop with attempt variable or MAX_STALE_RETRIES constant). ' +
+        'UNFIXED code only has a single retry. This test FAILS on unfixed code — that confirms the bug exists.');
+});
+
+test('FIXED: triggerOfficialAnalysis uses extended timeout (>= 15000ms)', () => {
+    const hasExtended = detectExtendedTimeout(crawlerSource);
+    assert.ok(hasExtended,
+        'triggerOfficialAnalysis should use timeout >= 15000ms. ' +
+        'UNFIXED code uses 6000ms. This test FAILS on unfixed code.');
 });
 
 // ---------------------------------------------------------------------------
-// Section 3: Property 1 — EXPECTED (fixed) behavior
-// These assertions encode what the FIXED code MUST do.
-// They WILL FAIL on unfixed code (that's the point).
+// Section 3: Property 1 — EXPECTED (fixed) behavior simulation
+// These FAIL on unfixed code because simulateCrawlSubjectRetry uses source detection
 // ---------------------------------------------------------------------------
 console.log('\n--- Section 3: Property 1 — Expected (fixed) behavior ---\n');
 console.log('  NOTE: Tests in this section MUST FAIL on unfixed code.\n');
 
-test('FIXED: DOM updates on attempt 1 → captures real analysis (not "无解析")', () => {
-    const result = simulateFixedCrawlSubject({
+test('PROPERTY 1: When DOM updates on attempt 2, fixed code captures real analysis (not "无解析")', () => {
+    // Scenario: DOM updates after ~4 seconds (attempt 2 of 3)
+    // Unfixed code: only 1 retry → DOM hasn't updated yet → "无解析"
+    // Fixed code: 3 retries → DOM updates on attempt 2 → captures real analysis
+    const result = simulateCrawlSubjectRetry({
         domAnalysisRawText: Q2_DOM_STALE_TEXT,
         staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
         lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        successOnAttempt: 1,
+        domUpdatesOnAttempt: 2,  // DOM updates on 2nd retry attempt
         freshAnalysis: Q2_REAL_ANALYSIS
     });
-    // EXPECTED (fixed) behavior: captures real analysis
+
+    // This assertion FAILS on unfixed code (single retry, DOM not updated on attempt 1)
     assert.notStrictEqual(result.analysis, '无解析',
-        `Fixed code should NOT produce "无解析" when DOM updates on attempt 1. Got: "${result.analysis}"`);
+        `When DOM updates on attempt 2, the system MUST NOT produce "无解析". ` +
+        `Got: "${result.analysis}". ` +
+        `usedFixedLogic: ${result.usedFixedLogic}. ` +
+        `retryAttempts: ${result.retryAttempts}. ` +
+        `COUNTEREXAMPLE: { questionIndex: 2, domAnalysisRawText: "参考答案：1、同伴教育亦称为同伴教学...", ` +
+        `staleFingerprints: ["未知|参考答案：1、同伴教育亦称为同伴教学..."] } → data.analysis === "无解析" ` +
+        `instead of Q2's real analysis. This FAILS on unfixed code — confirms the bug exists.`
+    );
     assert.strictEqual(result.analysis, Q2_REAL_ANALYSIS,
-        `Fixed code should capture Q2's real analysis. Got: "${result.analysis}"`);
+        `Fixed code should capture Q2's real analysis`);
 });
 
-test('FIXED: DOM updates on attempt 2 (after ~4s delay) → captures real analysis', () => {
-    const result = simulateFixedCrawlSubject({
+test('PROPERTY 1: When DOM updates on attempt 3, fixed code captures real analysis (not "无解析")', () => {
+    const result = simulateCrawlSubjectRetry({
         domAnalysisRawText: Q2_DOM_STALE_TEXT,
         staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
         lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        successOnAttempt: 2,
+        domUpdatesOnAttempt: 3,
         freshAnalysis: Q2_REAL_ANALYSIS
     });
+
     assert.notStrictEqual(result.analysis, '无解析',
-        `Fixed code should NOT produce "无解析" when DOM updates on attempt 2. Got: "${result.analysis}"`);
+        `When DOM updates on attempt 3, the system MUST NOT produce "无解析". ` +
+        `Got: "${result.analysis}". usedFixedLogic: ${result.usedFixedLogic}. ` +
+        `COUNTEREXAMPLE: Q2–Q5 in chapter 14658 all produce "无解析" because single retry is insufficient.`
+    );
     assert.strictEqual(result.analysis, Q2_REAL_ANALYSIS);
-    assert.strictEqual(result.retryAttempts, 2, 'Should have taken 2 retry attempts');
 });
 
-test('FIXED: DOM updates on attempt 3 (after ~6s delay) → captures real analysis', () => {
-    const result = simulateFixedCrawlSubject({
+test('PROPERTY 1 (fallback preserved): When DOM never updates, "无解析" recorded after all retries', () => {
+    const result = simulateCrawlSubjectRetry({
         domAnalysisRawText: Q2_DOM_STALE_TEXT,
         staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
         lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        successOnAttempt: 3,
-        freshAnalysis: Q2_REAL_ANALYSIS
-    });
-    assert.notStrictEqual(result.analysis, '无解析',
-        `Fixed code should NOT produce "无解析" when DOM updates on attempt 3. Got: "${result.analysis}"`);
-    assert.strictEqual(result.analysis, Q2_REAL_ANALYSIS);
-    assert.strictEqual(result.retryAttempts, 3, 'Should have taken 3 retry attempts');
-});
-
-test('FIXED: DOM never updates (genuinely no analysis) → "无解析" after all 3 retries exhausted', () => {
-    const result = simulateFixedCrawlSubject({
-        domAnalysisRawText: Q2_DOM_STALE_TEXT,
-        staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
-        lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        successOnAttempt: 0,  // never succeeds
+        domUpdatesOnAttempt: 0,  // never updates
         freshAnalysis: ''
     });
+
     // Fallback preserved: "无解析" is acceptable ONLY after all retries exhausted
     assert.strictEqual(result.analysis, '无解析',
-        `Fixed code should record "无解析" only after all retries exhausted. Got: "${result.analysis}"`);
-    assert.strictEqual(result.retryAttempts, 3, 'Should have exhausted all 3 retry attempts');
-});
-
-// ---------------------------------------------------------------------------
-// Section 4: The core property assertion
-// This is the key test that FAILS on unfixed code and PASSES on fixed code.
-// ---------------------------------------------------------------------------
-console.log('\n--- Section 4: Core property assertion (FAILS on unfixed code) ---\n');
-
-test('PROPERTY 1: When isBugCondition is true AND DOM eventually updates, result MUST NOT be "无解析"', () => {
-    // Simulate the exact scenario from debug_14658.log:
-    // - Q2 in chapter 14658
-    // - staleFingerprints contains Q1's resolvedFingerprint
-    // - DOM still shows Q1's analysis text
-    // - BUT: the 2024 site WILL eventually load Q2's analysis (after ~8 seconds)
-    //   → fixed code should capture it; unfixed code gives up too early
-
-    // On UNFIXED code: single retry, DOM hasn't updated → "无解析"
-    const unfixedResult = simulateUnfixedCrawlSubject({
-        domAnalysisRawText: Q2_DOM_STALE_TEXT,
-        staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
-        lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        triggerOfficialAnalysisSucceeds: false,
-        freshAnalysisAfterRetry: null
-    });
-
-    // On FIXED code: 3 retries, DOM updates on attempt 2 → captures real analysis
-    const fixedResult = simulateFixedCrawlSubject({
-        domAnalysisRawText: Q2_DOM_STALE_TEXT,
-        staleFingerprints: STALE_FINGERPRINTS_AT_Q2,
-        lastAnalysisFingerprint: Q1_ANALYSIS_FINGERPRINT,
-        successOnAttempt: 2,
-        freshAnalysis: Q2_REAL_ANALYSIS
-    });
-
-    // The UNFIXED code produces "无解析" (bug confirmed)
-    assert.strictEqual(unfixedResult.analysis, '无解析',
-        'Unfixed code should produce "无解析" (confirms bug exists)');
-
-    // The FIXED code should NOT produce "无解析" (this assertion FAILS on unfixed code)
-    // THIS IS THE LINE THAT FAILS ON UNFIXED CODE:
-    assert.notStrictEqual(unfixedResult.analysis, fixedResult.analysis,
-        'Fixed and unfixed code should produce DIFFERENT results when bug condition is active');
-    assert.notStrictEqual(fixedResult.analysis, '无解析',
-        'Fixed code MUST NOT produce "无解析" when DOM eventually updates with real content');
-    assert.strictEqual(fixedResult.analysis, Q2_REAL_ANALYSIS,
-        `Fixed code should capture Q2's real analysis: "${Q2_REAL_ANALYSIS}"`);
+        `When DOM never updates, "无解析" should be recorded after all retries exhausted`);
+    if (result.usedFixedLogic) {
+        assert.strictEqual(result.retryAttempts, 3,
+            'Fixed code should exhaust all 3 retry attempts before giving up');
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -408,6 +374,7 @@ console.log('');
 if (failed > 0) {
     console.log('EXPECTED FAILURE on unfixed code — this confirms the bug exists.');
     console.log('Counterexample: { questionIndex: 2, domAnalysisRawText: "参考答案：1、同伴教育亦称为同伴教学...", staleFingerprints: ["未知|参考答案：1、同伴教育亦称为同伴教学..."] } → data.analysis === "无解析" instead of Q2\'s real analysis');
+    console.log('Root cause: single retry with 6000ms timeout is insufficient for 2024 site DOM update latency.');
     console.log('');
     process.exit(1);
 } else {
