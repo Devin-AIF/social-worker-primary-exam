@@ -387,6 +387,9 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
         await page.evaluate(() => {
             const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length) && window.getComputedStyle(el).display !== 'none');
             
+            // 0. 关键补救：先尝试关闭可能存在的旧弹窗，防止它遮挡新的触发按钮
+            document.querySelectorAll('.layui-layer-close, .layui-layer-btn1').forEach(el => el.click());
+
             // 1. 检查解析是否已经完全展开且包含真实内容
             const getVisibleAnalysis = () => {
                 const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.answer-yes .analysis', '.answer-wrong .analysis', '.analysis', '#analysis', '.tiku-analysis', '.answer-detail', '#answer_analysis_detail', '.jiexi-content', '.solution', '.answer-content'];
@@ -412,7 +415,8 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
                 '.view-solution',
                 '.btn-answer',
                 '.view-answer',
-                '.subject-submit' // 问答题有时需要点击提交
+                '.subject-submit', // 问答题有时需要点击提交
+                '#SubjectSubmit'
             ];
             
             for (const s of clickSelectors) {
@@ -730,15 +734,16 @@ async function readQuestionData(page, oldAnalysisFingerprint = '') {
             answer: getAns(),
             analysis: analysisText,
             images,
-            fingerprint: (titleText.substring(0, 50) + optionsList.substring(0, 50)).replace(/\s/g, ''),
+            // 改进指纹：包含编号和题号，彻底解决共享题干题标题相同导致的“重复指纹”问题
+            fingerprint: (step + (document.querySelector('#item_id')?.innerText || '') + titleText.substring(0, 30) + optionsList.substring(0, 30)).replace(/\s/g, ''),
             telemetry: analysisText === '无解析' ? JSON.stringify({ 
                 elements: telemetry, 
                 titleSample: titleText.substring(0, 30),
                 url: window.location.href 
             }) : null
-        };
-    }, ENABLE_DISCUSSION_FALLBACK);
-}
+            };
+            }, { enableDiscussionFallback, oldAnalysisFingerprint });
+            }
 
 /**
  * 章节初始化与精准定位
@@ -1188,6 +1193,8 @@ async function crawlSubject(page, subject) {
                             await randomSleep(5000, 8000);
                             await openChapterAtQuestion(page, chapter.url, lastWrittenCurr);
                             stuckCount = 0;
+                            lastFingerprint = ''; // 重置指纹，确保重载后第一题能正常读取
+                            lastAnalysisFingerprint = '';
                         }
                         await randomSleep(2000, 4000);
                         continue;
