@@ -32,6 +32,7 @@ const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V5');
 const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log'); 
 const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json'); 
 const DEBUG_DIR = path.join(PROJECT_ROOT, 'debug_screenshots'); 
+if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
 
 const ENABLE_DISCUSSION_FALLBACK = true;
@@ -366,6 +367,14 @@ const MONITOR = {
 
 let completionStatus = {};
 
+function saveStatus() {
+    try {
+        fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2));
+    } catch (e) {
+        log(`保存进度失败: ${e.message}`, 'ERROR');
+    }
+}
+
 async function crawlSubject(page, subject) {
     const subjectName = sanitizeFileName(subject.name);
     const subjectDir = path.join(OUTPUT_DIR, subjectName);
@@ -384,16 +393,66 @@ async function crawlSubject(page, subject) {
         await handlePopup(page);
     }
     
-    await page.waitForSelector('input[name="change_id"]', { timeout: 8000 }).catch(() => {});
-    await page.evaluate((pid) => {
-        const radio = document.querySelector(`input[name="change_id"][value="${pid}"]`);
-        if (radio) {
-            radio.checked = true;
-            radio.dispatchEvent(new Event('change', { bubbles: true }));
-            document.querySelector('.change-subject-btn')?.click();
+    let radioLoaded = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            if (attempt > 1) {
+                const retrySwitch = await page.$('a.change:has-text("切换")');
+                if (retrySwitch) await retrySwitch.click({ force: true }).catch(() => {});
+            }
+            await page.waitForSelector('input[name="change_id"]', { timeout: 8000 });
+            radioLoaded = true;
+            break;
+        } catch (e) {
+            log(`第 ${attempt} 次等待题库切换列表失败，URL: ${page.url()}`, 'WARN');
+            if (attempt < 3) {
+                await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+                await randomSleep(3000, 5000);
+            }
         }
-    }, subject.productId);
-    await randomSleep(4000, 6000);
+    }
+    if (!radioLoaded) {
+        log(`题库切换列表加载失败，跳过科目: ${subject.name}`, 'ERROR');
+        return;
+    }
+
+    const radioSelector = `input[name="change_id"][value="${subject.productId}"]`;
+    const radioExists = await page.$(radioSelector);
+    if (!radioExists) {
+        const availableValues = await page.evaluate(() => Array.from(document.querySelectorAll('input[name="change_id"]')).map(r => r.value));
+        log(`未找到 product_id=${subject.productId} 的切换项，可用值: [${availableValues.join(', ')}]`, 'ERROR');
+        return;
+    }
+
+    try {
+        await page.click(`label:has(input[name="change_id"][value="${subject.productId}"])`, { force: true, timeout: 5000 });
+    } catch (e) {
+        try {
+            await page.click(radioSelector, { force: true, timeout: 3000 });
+        } catch (e2) {
+            await page.evaluate((pid) => {
+                const radio = document.querySelector(`input[name="change_id"][value="${pid}"]`);
+                if (radio) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('change', { bubbles: true }));
+                    radio.dispatchEvent(new Event('click', { bubbles: true }));
+                }
+            }, subject.productId);
+        }
+    }
+    log(`已选中题库: ${subject.name}`, 'INFO');
+
+    await randomSleep(3000, 5000);
+    await handlePopup(page);
+
+    const confirmBtn = await page.$('.list-change .btn-confirm, .list-change .submit, button:has-text("确认"), a:has-text("确认切换"), .change-subject-btn');
+    if (confirmBtn) {
+        await confirmBtn.click({ force: true }).catch(() => {});
+        log('已点击确认切换按钮', 'DEBUG');
+        await randomSleep(4000, 6000);
+    }
+
+    await page.waitForLoadState('networkidle').catch(() => {});
     await handlePopup(page);
 
     const CATEGORIES = [];
@@ -407,17 +466,27 @@ async function crawlSubject(page, subject) {
 
     if (extractedCats.length > 0) CATEGORIES.push(...extractedCats);
     else {
-        // 后备参数构造
+        log('未发现页面分类链接，尝试通过 subject_id 构造分类页', 'WARN');
         const subjectId = await page.evaluate(() => {
-            const m = document.body.innerHTML.match(/subject_id[\/=](\d+)/);
-            return m ? m[1] : '';
+            const links = Array.from(document.querySelectorAll('a[href*="subject_id"]'));
+            for (const a of links) {
+                const m = a.href.match(/subject_id[\/=](\d+)/);
+                if (m) return m[1];
+            }
+            const htmlMatch = document.body.innerHTML.match(/subject_id[\/=](\d+)/);
+            return htmlMatch ? htmlMatch[1] : '';
         });
         if (subjectId) {
             CATEGORIES.push({ name: '历年真题', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/1.html` });
             CATEGORIES.push({ name: '模拟试卷', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/2.html` });
             CATEGORIES.push({ name: '章节练习', url: `https://www.xs507.com/Tiku/Product/index/product_id/${subject.productId}/subject_id/${subjectId}/type/3.html` });
+        } else {
+            log(`未能解析 subject_id，当前 URL: ${page.url()}`, 'ERROR');
+            return;
         }
     }
+
+    log(`识别到 ${CATEGORIES.length} 个分类`, 'INFO');
 
     for (const cat of CATEGORIES) {
         log(`\n>>> [${subject.name}] 进入分类: ${cat.name}`, 'INFO');
@@ -432,39 +501,78 @@ async function crawlSubject(page, subject) {
         const chapters = await page.evaluate(() => {
             const container = document.querySelector('.question-conten-list, .product-box, #main-tiku-box') || document.body;
             return Array.from(container.querySelectorAll('a'))
-                .filter(a => (a.innerText.includes('模式') || a.innerText.includes('做题') || a.innerText.includes('开始')) && a.href.includes('product_id'))
+                .filter(a => {
+                    const t = a.innerText.trim();
+                    const isAction = (t.includes('模式') || t.includes('做题') || t.includes('开始')) && a.href.includes('product_id');
+                    const isLink = !!a.closest('.title') && (a.href.includes('paper_id') || a.href.includes('product_id'));
+                    return isAction || isLink;
+                })
                 .map(a => {
-                    const p = a.closest('li, tr, .item');
+                    const p = a.closest('li, tr, .item, .big');
                     let title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
                     let url = a.href;
-                    const mCount = p?.innerText.match(/共\s*(\d+)\s*题/);
-                    const mId = url.match(/(know|paper)_id=(\d+)/);
-                    return { title, url, id: mId ? mId[0] : 'unknown_' + Math.random(), total: mCount ? parseInt(mCount[1]) : 0 };
+                    if (p) {
+                        const practiceBtn = p.querySelector('a[href*="/exam/"][href*="records_type/1"]');
+                        const examBtn = p.querySelector('a[href*="/exam/"]');
+                        const detailBtn = p.querySelector('a[href*="/detail/"]');
+                        if (practiceBtn) url = practiceBtn.href;
+                        else if (examBtn) url = examBtn.href;
+                        else if (detailBtn) url = detailBtn.href;
+                    }
+                    let id = '';
+                    const mPaper = url.match(/paper_id[\/=](\d+)/);
+                    const mKnow = url.match(/know_id[\/=](\d+)/);
+                    const mProd = url.match(/product_id[\/=](\d+)/);
+                    if (mPaper) id = `paper-${mPaper[1]}`;
+                    else if (mKnow) id = `know-${mKnow[1]}`;
+                    else if (mProd) id = `prod-${mProd[1]}`;
+                    else id = `unknown-${Math.random().toString(36).slice(2, 7)}`;
+                    const mCount = p?.innerText.match(/共\s*(\d+)\s*题/) || p?.innerText.match(/\/(\d+)/);
+                    return { title, url, id, total: mCount ? parseInt(mCount[1], 10) : 0 };
                 }).filter((c, i, l) => l.findIndex(item => item.id === c.id) === i);
         });
 
+        log(`识别到 ${chapters.length} 个章节`, 'INFO');
+        if (chapters.length === 0) {
+            log(`分类 ${cat.name} 未识别到章节，当前 URL: ${page.url()}`, 'WARN');
+            continue;
+        }
+
         for (const chapter of chapters) {
-            const statusKey = `${subject.name}_${cat.name}_${chapter.id}`;
+            const statusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
-            let startFrom = completionStatus[statusKey]?.completed || 0;
-            if (completionStatus[statusKey]?.total > 0 && startFrom >= completionStatus[statusKey].total) {
+            let savedInfo = completionStatus[statusKey] || {};
+            if (typeof savedInfo === 'number') savedInfo = { completed: savedInfo };
+            const totalGoal = chapter.total || savedInfo.total || 0;
+            const jsonProgress = Number(savedInfo.completed) || 0;
+            const mdProgress = getCompletedCount(outputFile);
+            let startFrom = jsonProgress;
+            if (jsonProgress > 0 && mdProgress > jsonProgress) {
+                log(`检测到本地 Markdown 已抓到 ${mdProgress} 题，将从该位置恢复: ${chapter.title}`, 'WARN');
+                startFrom = mdProgress;
+            }
+
+            if (savedInfo.isFinished || (totalGoal > 0 && startFrom >= totalGoal)) {
                 log(`    [跳过] ${chapter.title} (已完成)`, 'INFO');
                 continue;
             }
 
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
-            if (startFrom === 0 && fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
+            if (!fs.existsSync(outputFile) || startFrom === 0) {
+                fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
+            }
 
-            log(`    [开始] ${chapter.title} (断点: ${startFrom})`, 'INFO');
+            log(`    [开始] ${chapter.title} (断点: ${startFrom}/${totalGoal || '?'})`, 'INFO');
             await openChapterAtQuestion(page, chapter.url, startFrom);
 
             let lastAnalysisFingerprint = '';
             let lastStem = '';
             let lastFingerprint = '';
             let stuckCount = 0;
+            let lastWrittenCurr = startFrom;
             while (true) {
                 await waitForQuestionReady(page);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
@@ -486,6 +594,35 @@ async function crawlSubject(page, subject) {
                     lastFingerprint = data.fingerprint;
                 }
 
+                if (curr <= startFrom) {
+                    const next = await page.$('.subject-next, #next_item');
+                    if (next && curr < totalNum) {
+                        log(`跳过已抓取题号: ${curr}`, 'DEBUG');
+                        const old = { step: data.step, id: data.itemId };
+                        await next.click({ force: true });
+                        await waitForQuestionChange(page, old.step, old.id);
+                        await waitForQuestionReady(page);
+                        continue;
+                    }
+                    if (curr === totalNum && curr <= startFrom) {
+                        completionStatus[statusKey] = { ...savedInfo, id: chapter.id, title: chapter.title, completed: totalNum, total: totalNum, isFinished: true, updatedAt: new Date().toLocaleString() };
+                        saveStatus();
+                        break;
+                    }
+                }
+
+                if (curr <= lastWrittenCurr) {
+                    const next = await page.$('.subject-next, #next_item');
+                    if (next && curr < totalNum) {
+                        log(`检测到重复题号 ${curr}，尝试前进到下一题`, 'WARN');
+                        const old = { step: data.step, id: data.itemId };
+                        await next.click({ force: true });
+                        await waitForQuestionChange(page, old.step, old.id);
+                        await waitForQuestionReady(page);
+                        continue;
+                    }
+                }
+
                 let md = `## 第 ${curr} 题 [${data.type}]\n\n`;
                 if (data.stem && data.stem !== lastStem) { md += `**【背景】**\n${data.stem}\n\n`; lastStem = data.stem; }
                 md += `**题目：** ${data.title}\n\n`;
@@ -494,11 +631,12 @@ async function crawlSubject(page, subject) {
                 fs.appendFileSync(outputFile, md);
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
+                lastWrittenCurr = curr;
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
                 
-                completionStatus[statusKey] = { completed: curr, total: totalNum };
-                fs.writeFileSync(STATUS_FILE, JSON.stringify(completionStatus, null, 2));
+                completionStatus[statusKey] = { id: chapter.id, title: chapter.title, completed: curr, total: totalNum, updatedAt: new Date().toLocaleString() };
+                saveStatus();
 
                 process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
@@ -511,7 +649,11 @@ async function crawlSubject(page, subject) {
                         await waitForQuestionChange(page, old.step, old.id);
                         await waitForQuestionReady(page);
                     } else { break; }
-                } else { break; }
+                } else {
+                    completionStatus[statusKey] = { id: chapter.id, title: chapter.title, completed: curr, total: totalNum, isFinished: true, updatedAt: new Date().toLocaleString() };
+                    saveStatus();
+                    break;
+                }
             }
             log(`\n    [完成] ${chapter.title}`, 'INFO');
         }
