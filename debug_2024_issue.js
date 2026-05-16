@@ -11,7 +11,7 @@ const PAPER_URL = 'https://www.xs507.com/Tiku/Exam/index/paper_id/14658.html?aga
 
 async function debug() {
     console.log('启动浏览器...');
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
 
