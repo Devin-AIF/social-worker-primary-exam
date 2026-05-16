@@ -695,12 +695,11 @@ async function crawlSubject(page, subject) {
                 fs.appendFileSync(outputFile, md);
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
-                lastResolvedFingerprint = data.resolvedFingerprint; 
-                // 更新历史指纹池
+                // 更新历史指纹池：仅记录有意义的长指纹，且维持最近3个。
                 if (data.resolvedFingerprint && data.resolvedFingerprint.length > 30) {
                     if (!staleFingerprints.includes(data.resolvedFingerprint)) {
                         staleFingerprints.push(data.resolvedFingerprint);
-                        if (staleFingerprints.length > 5) staleFingerprints.shift();
+                        if (staleFingerprints.length > 3) staleFingerprints.shift();
                     }
                 }
                 lastTitleFingerprint = data.titleFingerprint;

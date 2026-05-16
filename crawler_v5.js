@@ -160,7 +160,7 @@ async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     };
     await handlePopup(page);
     await trigger();
-    await page.waitForTimeout(1000); // 控制台脚本用的是 500ms，这里稍微多给点时间
+    await page.waitForTimeout(1000); 
     return true; 
 }
 
@@ -589,11 +589,11 @@ async function crawlSubject(page, subject) {
             await openChapterAtQuestion(page, chapter.url, startFrom);
 
             let lastAnalysisFingerprint = '';
-            let lastStem = '';
+            let lastResolvedFingerprint = ''; // 新增：记录上一题落盘的指纹
             let lastFingerprint = '';
             // 历史成功指纹池，用于识别多题之前的旧内容残留。
             let staleFingerprints = [];
-            // 上一题题干指纹。用于辅助识别“当前候选内容其实还在引用上一题题干”的情况。
+            // 上一题题干指纹。用于辅助识别“当前候选内容其实还在引用上一题干”的情况。
             let lastTitleFingerprint = '';
             let stuckCount = 0;
             let lastWrittenCurr = startFrom;
@@ -601,15 +601,39 @@ async function crawlSubject(page, subject) {
                 await waitForQuestionReady(page);
                 await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
 
-                // 每次读取时都带着上一题的状态进入浏览器上下文，让页面内提取逻辑有能力识别“旧内容残留”。
+                // 核心：强制等待异步内容有时间渲染
+                await page.waitForTimeout(1000);
+
+                // 每次读取时都带着上一题的状态进入浏览器上下文
                 let data = await readQuestionData(page, {
                     oldAnalysisFingerprint: lastAnalysisFingerprint,
                     staleFingerprints: staleFingerprints,
                     oldTitleFingerprint: lastTitleFingerprint
                 });
 
-                // 第一层补救：
-                // 如果当前题读到的是“无解析”或被判定为冲突拦截，先在当前题原地重触发一次解析。
+                // --- 核心加固：内容刷新校验 (针对自动化环境跑太快的问题) ---
+                if (data.resolvedFingerprint === lastResolvedFingerprint && data.resolvedFingerprint.length > 20) {
+                    log(`检测到内容与上一题雷同 (题号: ${data.step})，页面渲染残留中，正在重试...`, 'WARN');
+                    let refreshSuccess = false;
+                    for (let retry = 0; retry < 5; retry++) {
+                        await page.waitForTimeout(1500); 
+                        await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+                        data = await readQuestionData(page, {
+                            oldAnalysisFingerprint: lastAnalysisFingerprint,
+                            staleFingerprints: staleFingerprints,
+                            oldTitleFingerprint: lastTitleFingerprint
+                        });
+                        if (data.resolvedFingerprint !== lastResolvedFingerprint) {
+                            refreshSuccess = true;
+                            break;
+                        }
+                    }
+                    if (!refreshSuccess) {
+                        log(`警告：该题解析内容可能确实与前一题一致。`, 'WARN');
+                    }
+                }
+
+                // 第一层补救：无解析或冲突拦截处理
                 if (data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') {
                     await handlePopup(page);
                     await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
@@ -623,6 +647,7 @@ async function crawlSubject(page, subject) {
                         data = retried;
                     }
                 }
+
                 const [curr, totalNum] = data.step.split('/').map(Number);
                 if (!data.title || !curr || !totalNum) {
                     log(`题目页数据异常，step=${data.step} title=${data.title ? 'OK' : 'EMPTY'}`, 'WARN');
@@ -640,9 +665,7 @@ async function crawlSubject(page, subject) {
                     lastFingerprint = data.fingerprint;
                 }
 
-                // 第二层补救：
-                // 题干已经变了，但“答案+解析”整块内容雷同于历史记录，基本可以断定发生了串题。
-                // 这时不直接落盘，而是原地再触发一次重新读。
+                // 第二层补救：历史跨题重复检测 (保留历史背景逻辑)
                 const isRepeatedInHistory = data.resolvedFingerprint.length > 30 && staleFingerprints.includes(data.resolvedFingerprint);
                 if (isRepeatedInHistory && data.titleFingerprint !== lastTitleFingerprint) {
                     log(`检测到跨题复用了历史答案/解析，正在重试当前题: ${data.step}`, 'WARN');
@@ -695,11 +718,12 @@ async function crawlSubject(page, subject) {
                 fs.appendFileSync(outputFile, md);
 
                 lastAnalysisFingerprint = data.analysisFingerprint;
-                // 更新历史指纹池：仅记录有意义的长指纹，且维持最近3个。
+                lastResolvedFingerprint = data.resolvedFingerprint; 
+                // 更新历史指纹池
                 if (data.resolvedFingerprint && data.resolvedFingerprint.length > 30) {
                     if (!staleFingerprints.includes(data.resolvedFingerprint)) {
                         staleFingerprints.push(data.resolvedFingerprint);
-                        if (staleFingerprints.length > 3) staleFingerprints.shift();
+                        if (staleFingerprints.length > 5) staleFingerprints.shift();
                     }
                 }
                 lastTitleFingerprint = data.titleFingerprint;
