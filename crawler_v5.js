@@ -54,7 +54,7 @@ const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
 
 // 目录路径常量
 const PROJECT_ROOT = __dirname;
-const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V4'); // Markdown 文件的全局根输出目录
+const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V5'); // Markdown 文件的全局根输出目录
 const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log'); // 运行日志保存路径
 const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json'); // 断点续传的核心状态文件
 const DEBUG_DIR = path.join(PROJECT_ROOT, 'debug_screenshots'); // 错误截图目录
