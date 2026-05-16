@@ -761,18 +761,24 @@ async function crawlSubject(page, subject) {
                 });
 
                 // 第一层补救：
-                // 如果当前题读到的是“无解析”或被判定为冲突拦截，先在当前题原地重触发一次解析。
+                // 如果当前题读到的是“无解析”或被判定为冲突拦截，循环重试最多3次（延迟递增），
+                // 给 2024 站点足够时间将上一题残留的 DOM 替换为当前题的真实解析。
                 if ((data.analysis === '无解析' || data.analysis === '无解析 (抓取冲突已拦截)') && lastAnalysisFingerprint) {
-                    await handlePopup(page);
-                    await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
-                    await randomSleep(1200, 2200);
-                    const retried = await readQuestionData(page, {
-                        oldAnalysisFingerprint: lastAnalysisFingerprint,
-                        staleFingerprints: staleFingerprints,
-                        oldTitleFingerprint: lastTitleFingerprint
-                    });
-                    if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
-                        data = retried;
+                    const MAX_STALE_RETRIES = 3;
+                    const STALE_RETRY_DELAYS = [2000, 4000, 6000];
+                    for (let attempt = 0; attempt < MAX_STALE_RETRIES; attempt++) {
+                        await handlePopup(page);
+                        await triggerOfficialAnalysis(page, lastAnalysisFingerprint);
+                        await randomSleep(STALE_RETRY_DELAYS[attempt], STALE_RETRY_DELAYS[attempt] + 1000);
+                        const retried = await readQuestionData(page, {
+                            oldAnalysisFingerprint: lastAnalysisFingerprint,
+                            staleFingerprints: staleFingerprints,
+                            oldTitleFingerprint: lastTitleFingerprint
+                        });
+                        if (retried.analysis !== '无解析' && retried.analysis !== '无解析 (抓取冲突已拦截)') {
+                            data = retried;
+                            break;
+                        }
                     }
                 }
                 const [curr, totalNum] = data.step.split('/').map(Number);
