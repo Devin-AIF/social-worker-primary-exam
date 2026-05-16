@@ -1269,15 +1269,12 @@ async function crawlSubject(page, subject) {
                     }
                     
                     md += `**题目：** ${data.title}\n\n`;
-                    
-                    // 问答题、简答题等主观题处理
-                    if (!['问答题', '简答题', '案例分析题', '论述题'].includes(data.type)) {
-                        md += `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n> **正确答案：** ${data.answer}\n\n`;
-                        md += `**解析：**\n${data.analysis}\n\n---\n\n`;
-                    } else {
-                        // 主观题：答案直接显示在解析位
-                        md += `**参考答案/解析：**\n${data.analysis}\n\n---\n\n`;
+                    if (data.options && data.options.trim()) {
+                        md += `${data.options}\n\n`;
                     }
+
+                    md += `> **正确答案：** ${data.answer}\n\n`;
+                    md += `**解析：**\n${data.analysis}\n\n---\n\n`;
                     
                     fs.appendFileSync(outputFile, md);
 
