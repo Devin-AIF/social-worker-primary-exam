@@ -135,12 +135,6 @@ async function safeClick(page, selector, waitAfter = 0) {
 async function triggerOfficialAnalysis(page, oldAnalysisFingerprint = '') {
     const trigger = async () => {
         await page.evaluate(() => {
-            // 在触发前，物理清理所有已知的解析容器，从根本上防止旧内容残留
-            const sel = ['.analysis.pd10', '#answer_analysis .analysis', '.analysis', '#analysis', '.item_analysis', '#item_analysis', '.jiexi-content', '.solution', '.answer-content', '.subject-answer', '.question-answer'];
-            sel.forEach(s => document.querySelectorAll(s).forEach(el => {
-                if (el) el.innerHTML = '<div style="color:#ccc">--- [CRAWLER: WAITING FOR NEW DATA] ---</div>';
-            }));
-
             document.querySelectorAll('.layui-layer-shade, .layui-layer, .layerSaveSuccess, .layui-layer-close').forEach(el => el.remove());
             const analysisSelectors = ['#analysis', '.analysis', '#answer_analysis', '.item_analysis', '#item_analysis', '#item_answer', '.answer-content'];
             analysisSelectors.forEach(s => {
@@ -194,7 +188,7 @@ async function readQuestionData(page, staleState = {}) {
 
         // 某些题目的“答案区”只会给一个占位词，而不是实际答案。
         // 这些词一旦被当真写进 markdown，后续就很难再自动修复，所以在入口处直接判掉。
-        const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析|--- \[CRAWLER:.*)$/i.test((text || '').trim());
+        const isPlaceholderAnswer = (text) => /^(答案及|答案与解析|参考答案|正确答案|查看答案|点击查看解析|暂无解析)$/i.test((text || '').trim());
         const normalizeFingerprint = (text, limit = 160) => (text || '').replace(/\s/g, '').substring(0, limit);
         const hasStepPattern = (text) => /\b\d+\s*\/\s*\d+\b/.test(text || '');
 
