@@ -312,8 +312,10 @@ async function readQuestionData(page, staleState = {}) {
                 const rawText = (el.innerText || el.textContent || '').trim();
                 
                 // --- DEBUG 14658 Q2 RAW TEXT ---
-                if (document.querySelector('#item_step, .item-step')?.innerText.includes('2/') && document.querySelector('.title, .item-title, .subject-title')?.innerText.includes('在街道召开的多方协商会议中')) {
-                    console.log(`[DEBUG Q2] Selector ${s} rawText length: ${rawText.length}, starts with: ${rawText.substring(0, 50)}`);
+                const stepTxt = document.querySelector('#item_step, .item-step')?.innerText || '';
+                const titleTxt = document.querySelector('.title, .item-title, .subject-title')?.innerText || '';
+                if (stepTxt.includes('2/')) {
+                    console.log(`[DEBUG Q2] titleTxt: ${titleTxt.substring(0,30)}, selector: ${s}, rawLength: ${rawText.length}`);
                 }
                 // -------------------------------
 
