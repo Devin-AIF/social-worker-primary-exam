@@ -206,5 +206,36 @@
     "completed": 1,
     "total": 30,
     "updatedAt": "5/17/2026, 4:47:24 PM"
+  },
+  "317_章节练习_know_id-377": {
+    "completed": 1,
+    "total": 31,
+    "updatedAt": "5/17/2026, 4:47:37 PM"
+  },
+  "317_章节练习_know_id-378": {
+    "completed": 1,
+    "total": 29,
+    "updatedAt": "5/17/2026, 4:47:51 PM"
+  },
+  "317_章节练习_know_id-382": {
+    "completed": 1,
+    "total": 34,
+    "updatedAt": "5/17/2026, 4:48:03 PM"
+  },
+  "317_历年真题_paper_id-16044": {
+    "completed": 2,
+    "total": 9,
+    "updatedAt": "5/17/2026, 4:48:40 PM"
+  },
+  "317_历年真题_paper_id-14658": {
+    "completed": 2,
+    "total": 5,
+    "updatedAt": "5/17/2026, 4:49:13 PM"
+  },
+  "317_历年真题_paper_id-13738": {
+    "completed": 5,
+    "total": 5,
+    "updatedAt": "5/17/2026, 4:49:26 PM",
+    "isFinished": true
   }
 }

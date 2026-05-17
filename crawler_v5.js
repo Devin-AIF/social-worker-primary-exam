@@ -104,7 +104,7 @@ async function safeClick(page, selector, waitAfter = 0) {
 /**
  * 触发官方解析 (增强版：带指纹校验)
  */
-async function triggerOfficialAnalysis(page, lastContentFp = '') {
+async function triggerOfficialAnalysis(page, lastAnalysisText = '') {
     await page.evaluate(() => {
         // 1. 清理容器但不隐藏
         const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.answer-content', '.jiexi-content'];
@@ -128,7 +128,7 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
             const el = document.querySelector('.analysis, #answer_analysis, #analysis, .answer-content');
             return el ? el.innerText.trim().substring(0, 100).replace(/\s/g, '') : '';
         });
-        if (currentFp && currentFp.length > 5 && currentFp !== lastContentFp) return true;
+        if (currentFp && currentFp.length > 5 && currentFp !== lastAnalysisText) return true;
         await page.waitForTimeout(800);
     }
     return false;
@@ -224,7 +224,7 @@ async function readQuestionData(page) {
             options: fetchOptions(), answer: finalAnswer, analysis: finalAnalysis, 
             images,
             fingerprint: (titleText.substring(0, 50) + stepRaw).replace(/\s/g, ''),
-            contentFingerprint: (finalAnalysis.substring(0, 100) + finalAnswer + stepRaw).replace(/\s/g, '')
+            contentFingerprint: (titleText.substring(0, 50) + finalAnalysis.substring(0, 100) + finalAnswer + stepRaw).replace(/\s/g, '')
         };
     });
 }
@@ -356,7 +356,7 @@ async function crawlSubject(page, subject) {
 
     for (const cat of categories) {
         log(`进入分类: ${cat.name}`, 'INFO');
-        const typeDir = path.join(subjectDir, cat.name);
+        const typeDir = path.join(subjectDir, sanitizeFileName(cat.name));
         if (!fs.existsSync(typeDir)) fs.mkdirSync(typeDir, { recursive: true });
 
         await page.goto(cat.url).catch(() => {});
@@ -375,7 +375,7 @@ async function crawlSubject(page, subject) {
         });
 
         for (const chapter of chapters) {
-            const statusKey = `${subject.productId}_${cat.name}_${buildStableChapterKey(chapter)}`;
+            const statusKey = `${subject.productId}_${cat.name}_${sanitizeFileName(chapter.title)}_${buildStableChapterKey(chapter)}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${buildStableChapterKey(chapter)}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
@@ -390,27 +390,36 @@ async function crawlSubject(page, subject) {
             await openChapterAtQuestion(page, chapter.url, startFrom);
 
             let lastContentFp = '';
+            let lastAnalysisText = '';
             let stuckCount = 0;
+            let internalCurr = startFrom;
             
             while (true) {
                 if (!await waitForQuestionReady(page)) {
                     log('页面响应超时，尝试刷新...', 'WARN');
                     await page.reload();
-                    await openChapterAtQuestion(page, chapter.url, startFrom);
+                    await openChapterAtQuestion(page, chapter.url, internalCurr);
                 }
 
-                await triggerOfficialAnalysis(page, lastContentFp);
+                await triggerOfficialAnalysis(page, lastAnalysisText);
                 let data = await readQuestionData(page);
-                let [curr, totalNum] = data.step.split('/').map(Number);
+                
+                let [parsedCurr, parsedTotal] = data.step.split('/').map(Number);
+                let curr = (isNaN(parsedCurr) || parsedCurr === 0) ? internalCurr + 1 : parsedCurr;
+                let totalNum = isNaN(parsedTotal) ? 0 : parsedTotal;
+                internalCurr = curr;
 
                 // 黄金刷新逻辑：如果内容未刷新或数据异常
-                if (data.contentFingerprint === lastContentFp || isNaN(totalNum) || totalNum === 0) {
+                const isContentStuck = (data.contentFingerprint === lastContentFp && lastContentFp !== '');
+                const isDataInvalid = !data.title || data.title.length < 2;
+
+                if (isContentStuck || isDataInvalid) {
                     stuckCount++;
                     if (stuckCount >= 3) {
-                        log('内容持续未刷新，执行强制重载...', 'WARN');
+                        log('内容持续未刷新或异常，执行强制重载...', 'WARN');
                         await page.reload();
                         await randomSleep(5000, 7000);
-                        await openChapterAtQuestion(page, chapter.url, curr > 0 ? curr - 1 : startFrom);
+                        await openChapterAtQuestion(page, chapter.url, curr > 1 ? curr - 2 : startFrom);
                         stuckCount = 0;
                         continue;
                     }
@@ -421,26 +430,39 @@ async function crawlSubject(page, subject) {
 
                 // 写入数据
                 let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
-                if (data.options) md += `${data.options}\n\n`;
+                if (data.options) md += `\`\`\`\n${data.options}\n\`\`\`\n\n`;
                 md += `> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
                 fs.appendFileSync(outputFile, md);
 
                 lastContentFp = data.contentFingerprint;
+                lastAnalysisText = data.analysis.substring(0, 100).replace(/\s/g, '');
+                
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
                 
                 completionStatus[statusKey] = { completed: curr, total: totalNum, updatedAt: new Date().toLocaleString() };
                 saveStatus();
-                process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
+                process.stdout.write(`\r进度: ${curr}/${totalNum || '?'} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                 
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
 
-                if (curr < totalNum) {
-                    const next = await page.$('.subject-next, #next_item');
-                    if (next) {
-                        await next.click({ force: true });
-                        await page.waitForTimeout(1500);
-                    } else break;
+                const shouldClickNext = totalNum === 0 || curr < totalNum;
+                
+                if (shouldClickNext) {
+                    const nextSelectors = ['.subject-next', '#next_item', '.next-btn', 'a:has-text("下一题")'];
+                    let nextClicked = false;
+                    for (const s of nextSelectors) {
+                        if (await safeClick(page, s, 1500)) {
+                            nextClicked = true;
+                            break;
+                        }
+                    }
+                    if (!nextClicked) {
+                        log(`\n未能找到下一题按钮，当前进度: ${curr}/${totalNum || '?'}，提早结束本章`, 'WARN');
+                        completionStatus[statusKey].isFinished = true;
+                        saveStatus();
+                        break;
+                    }
                 } else {
                     completionStatus[statusKey].isFinished = true;
                     saveStatus();
