@@ -247,37 +247,36 @@ async function waitForQuestionReady(page) {
 
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     const finalUrl = (questionIndex === 0 && !chapterUrl.includes('again=1')) ? (chapterUrl.includes('?') ? `${chapterUrl}&again=1` : `${chapterUrl}?again=1`) : chapterUrl;
-    await page.goto(finalUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await randomSleep(3000, 5000);
-    await handlePopup(page);
-
+    await page.goto(finalUrl).catch(() => {});
+    await randomSleep(4000, 6000);
+    
+    // 1. 尝试开始
     const startBtns = ['a:has-text("开始做题")', 'a:has-text("练习模式")', 'a.enable.a2'];
     for (const s of startBtns) { if (await safeClick(page, s, 3000)) break; }
-    
-    // 强制切换背题模式
-    await page.evaluate(() => {
-        const btn = Array.from(document.querySelectorAll('a, button, span')).find(el => /背题|显示答案/.test(el.innerText));
-        if (btn) btn.click();
-    });
-    await randomSleep(2000, 3000);
-    await waitForQuestionReady(page);
 
+    // 2. 切换背题模式
+    await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll('a, button, span, .bd_bt')).find(el => {
+            const t = el.innerText.trim();
+            return t === '背题模式' || t === '背题' || t === '显示答案';
+        });
+        if (btn) btn.click();
+        else if (typeof switchMode === 'function') switchMode('recite');
+    }).catch(() => {});
+    await randomSleep(2000, 3000);
+
+    // 3. 题目跳转
     if (questionIndex > 0) {
-        log(`正在通过答题卡跳转至第 ${questionIndex + 1} 题...`, 'DEBUG');
-        await page.evaluate(() => { document.querySelector('.bd_dtk, #tiku_sheet, .answer-card-btn')?.click(); });
-        await page.waitForTimeout(1000);
-        const jumped = await page.evaluate((idx) => {
+        log(`正在跳转至第 ${questionIndex + 1} 题...`, 'DEBUG');
+        await page.evaluate((idx) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
-            if (cards[idx]) { cards[idx].click(); return true; }
-            return false;
-        }, questionIndex);
-        if (!jumped) {
-             const jumpInput = await page.$('.bd_bt_input');
-             if (jumpInput) { await jumpInput.fill(String(questionIndex + 1)); await page.keyboard.press('Enter'); }
-        }
-        await randomSleep(3000, 5000);
-        await waitForQuestionReady(page);
+            if (cards[idx]) cards[idx].click();
+        }, questionIndex).catch(() => {});
+        await randomSleep(2000, 4000);
     }
+    
+    const ready = await waitForQuestionReady(page);
+    if (!ready) throw new Error(`章节内容加载超时: ${chapterUrl}`);
 }
 
 async function downloadImage(url, dest) {
