@@ -222,8 +222,14 @@ async function readQuestionData(page) {
             if (fullAnaText) break;
         }
 
-        // 3. 拆分逻辑
-        if (fullAnaText) {
+        // 3. 字段分配逻辑 (对齐 2024 年风格：问答题答案直接放"正确答案"区，解析留空或放"无")
+        if (itemType.includes('问答')) {
+            if (fullAnaText) {
+                // 剔除干扰词
+                finalAnswer = fullAnaText.replace(/参考答案：/g, '').replace(/答题要点：/g, '').trim();
+                finalAnalysis = '无'; 
+            }
+        } else if (fullAnaText) {
             finalAnalysis = fullAnaText;
             if (finalAnswer === '未知') {
                  const anaMatch = fullAnaText.match(/(参考答案|正确答案|答案)[：:\n]/);
