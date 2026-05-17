@@ -106,12 +106,34 @@ async function startCrawling() {
             const anaMatch = fullText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
             if (anaMatch) {
                 const parts = fullText.split(anaMatch[0]);
-                if (finalAnswer === '未知') finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                if (finalAnswer === '未知') {
+                    finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                }
                 finalAnalysis = parts.slice(1).join(anaMatch[0]).trim();
             } else {
-                finalAnalysis = fullText;
+                if (finalAnswer === '未知') {
+                    finalAnswer = fullText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
+                    finalAnalysis = '无';
+                } else {
+                    finalAnalysis = fullText;
+                }
             }
         }
+
+        if (finalAnswer !== '未知') {
+            const anaMatch2 = finalAnswer.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
+            if (anaMatch2) {
+                const parts = finalAnswer.split(anaMatch2[0]);
+                finalAnswer = parts[0].trim();
+                if (finalAnalysis === '无解析' || finalAnalysis === '无' || !finalAnalysis) {
+                    finalAnalysis = parts.slice(1).join(anaMatch2[0]).trim();
+                }
+            }
+        }
+
+        if (!finalAnswer) finalAnswer = '未知';
+        if (!finalAnalysis) finalAnalysis = '无';
+
         return { answer: finalAnswer, analysis: finalAnalysis };
     };
 
