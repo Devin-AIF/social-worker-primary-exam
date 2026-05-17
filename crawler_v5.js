@@ -108,52 +108,57 @@ async function safeClick(page, selector, waitAfter = 0) {
 }
 
 /**
- * 触发官方解析（仅作为兜底）
+ * 触发官方解析 (增强版：带去重校验)
  */
-async function triggerOfficialAnalysis(page) {
+async function triggerOfficialAnalysis(page, lastContentFp = '') {
+    // 1. 物理清理所有解析容器，确保旧数据不干扰
     await page.evaluate(() => {
-        // 1. 尝试暴力显示所有隐藏的解析容器
-        document.querySelectorAll('#analysis, .analysis, .answer-yes, .click_analysis, .analysis-box').forEach(el => {
-            el.style.display = 'block';
-            el.classList.remove('hide');
-        });
+        const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.answer-content', '.analysis-box', '.answer-analysis', '.jiexi-content', '.answer-yes', '.right-answer'];
+        anaSelectors.forEach(s => document.querySelectorAll(s).forEach(el => {
+            el.innerHTML = '';
+            el.style.display = 'none';
+        }));
+    }).catch(() => {});
 
+    await page.evaluate(() => {
         // 2. 尝试点击所有可能的“显示”按钮
         const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.view-answer', '.subject-submit'];
         clickSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(btn => {
                 const text = (btn.innerText || '').trim();
                 if (text.includes('收起')) return;
-                // 对于“提交”按钮，仅当是问答题且没解析时尝试点击
-                if (text.includes('提交') && !document.querySelector('#item_type')?.innerText.includes('问答')) return;
-
                 if (btn.offsetParent !== null || /解析|答案|显示|查看|提交/.test(text) || btn.classList.contains('click_analysis')) {
                     btn.click();
                 }
             });
         });
 
-        // 3. 特殊处理：有些问答题需要点一下答题框或提交
+        // 3. 特殊处理：问答题
         if (document.querySelector('#item_type')?.innerText.includes('问答')) {
             const submitBtn = document.querySelector('.subject-submit');
             if (submitBtn) submitBtn.click();
         }
     });
 
-    // 增加：循环等待解析内容加载出来
-    for (let i = 0; i < 5; i++) {
-        const hasContent = await page.evaluate(() => {
-            const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.jiexi-content'];
+    // 4. 循环等待新内容加载，且必须与旧内容指纹不同
+    for (let i = 0; i < 10; i++) {
+        const currentData = await page.evaluate(() => {
+            const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.jiexi-content', '.answer-yes', '.right-answer'];
+            let bestText = '';
             for (const s of anaSelectors) {
                 const el = document.querySelector(s);
-                if (el && el.innerText.trim().length > 10) return true;
+                if (el && el.innerText.trim().length > 15 && el.offsetParent !== null) {
+                    bestText = el.innerText.trim();
+                    break;
+                }
             }
-            // 或者有专用答案也算
-            const ded = Array.from(document.querySelectorAll('div, span')).find(el => el.innerText.includes('正确答案：'));
-            if (ded && ded.innerText.trim().length > 5) return true;
-            return false;
+            return bestText;
         });
-        if (hasContent) break;
+
+        const currentFp = currentData.replace(/\s/g, '').substring(0, 100);
+        if (currentFp && currentFp !== lastContentFp) {
+            break; // 成功拿到新解析
+        }
         await page.waitForTimeout(1000);
     }
 }
