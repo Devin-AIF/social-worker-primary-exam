@@ -214,7 +214,7 @@ async function readQuestionData(page) {
             return t.startsWith('正确答案：') || t.startsWith('正确答案:');
         });
         if (dedicatedAnsBox) {
-            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').replace(/^为/, '').trim();
+            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').replace(/^\s*为\s*/, '').trim();
         }
 
         // 1. 提取解析全文 (根据裸跑结果，锁定最精准的路径)
@@ -250,7 +250,7 @@ async function readQuestionData(page) {
             // 预处理：替换 &nbsp; 为标准空格，统一空白符
             let cleanFullText = fullAnaText.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
-            const ansRegex = /(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*/i;
+            const ansRegex = /(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*为?/i;
             const anaRegex = /(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\s]*/i;
 
             // 寻找关键词位置
@@ -270,17 +270,17 @@ async function readQuestionData(page) {
 
             // 提取答案
             if (ansPart.match(ansRegex)) {
-                finalAnswer = ansPart.replace(new RegExp('^.*?' + ansRegex.source, 'i'), '').replace(/^为/, '').trim();
+                finalAnswer = ansPart.replace(new RegExp('^.*?' + ansRegex.source, 'i'), '').replace(/^\s*为\s*/, '').trim();
             } else if (anaPart.match(ansRegex)) {
                 // 如果答案在解析块里
                 const m = anaPart.match(ansRegex);
                 const afterAns = anaPart.substring(anaPart.indexOf(m[0]) + m[0].length).trim();
-                finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^为/, '').trim();
+                finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^\s*为\s*/, '').trim();
             }
 
             // 如果是选择题且没抓到有效答案，尝试暴力搜寻单个大写字母
-            if (!finalAnswer || finalAnswer.length > 10 || finalAnswer === '参考') {
-                const letterMatch = cleanFullText.match(/(?:答案|参考答案|正确答案)[：:\s]*([A-G]+)/i);
+            if (!finalAnswer || finalAnswer.length > 10 || finalAnswer === '参考' || finalAnswer === '为') {
+                const letterMatch = cleanFullText.match(/(?:答案|参考答案|正确答案)[：:\s]*为?\s*([A-G]+)/i);
                 if (letterMatch) {
                     finalAnswer = letterMatch[1];
                 } else if (!itemType.includes('问答')) {
