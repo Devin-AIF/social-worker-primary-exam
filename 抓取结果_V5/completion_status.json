@@ -511,19 +511,20 @@
     "isFinished": true,
     "updatedAt": "05/17/2026, 01:35:08 PM"
   },
-  "39_章节练习_know-341": {
     "id": "know-341",
     "title": "第一章　社会工作服务相关法规与政策的基本体系和主要功能",
-    "completed": 0,
-    "total": 125,
-    "updatedAt": "5/17/2026, 4:03:53 PM"
+    "completed": 1,
+    "total": 1,
+    "updatedAt": "5/17/2026, 4:16:56 PM",
+    "isFinished": true
   },
   "39_章节练习_know-53814": {
     "id": "know-53814",
     "title": "第二章 人民信访工作的法规与政策",
-    "completed": 0,
-    "total": 47,
-    "updatedAt": "5/17/2026, 4:00:30 PM"
+    "completed": 1,
+    "total": 1,
+    "updatedAt": "5/17/2026, 4:17:14 PM",
+    "isFinished": true
   },
   "39_章节练习_know-354": {
     "id": "know-354",

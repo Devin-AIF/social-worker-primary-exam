@@ -154,6 +154,15 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
 
 async function readQuestionData(page) {
     const data = await page.evaluate(() => {
+        const getStepText = () => {
+            const el = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos');
+            if (el) return el.innerText.trim();
+            // 最后的倔强：全文找 X/Y
+            const m = document.body.innerText.match(/(\d+)\s*\/\s*(\d+)/);
+            return m ? m[0] : '0/0';
+        };
+        const step = getStepText();
+
         const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
 
         const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
