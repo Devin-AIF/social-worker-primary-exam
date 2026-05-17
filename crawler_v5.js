@@ -155,17 +155,18 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
 async function readQuestionData(page) {
     const data = await page.evaluate(() => {
         const getStepText = () => {
-            const el = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos');
-            if (el) return el.innerText.trim();
-            // 最后的倔强：全文找 X/Y
-            const m = document.body.innerText.match(/(\d+)\s*\/\s*(\d+)/);
-            return m ? m[0] : '0/0';
+            const el = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos, .subject-type-box');
+            if (el) {
+                const m = el.innerText.match(/(\d+)\s*\/\s*(\d+)/);
+                if (m) return m[0].replace(/\s/g, '');
+            }
+            const bodyMatch = document.body.innerText.match(/(\d+)\s*\/\s*(\d+)/);
+            return bodyMatch ? bodyMatch[0].replace(/\s/g, '') : '0/0';
         };
         const step = getStepText();
 
         const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
 
-        const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
         const itemId = (document.querySelector('#item_id')?.innerText || '').replace(/编号：/g, '').trim();
         const images = [];
 
@@ -344,9 +345,11 @@ async function readQuestionData(page) {
 async function waitForQuestionReady(page) {
     const ready = await page.waitForFunction(() => {
         const title = document.querySelector('#item_title, .item-title, .subject-title');
-        const step = document.querySelector('#item_step, .item-step');
-        return title && title.innerText.trim().length > 0 && step && step.innerText.includes('/');
-    }, { timeout: 15000 }).then(() => true).catch((e) => {
+        const stepEl = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos');
+        const stepText = stepEl ? stepEl.innerText.trim() : '';
+        const stepValid = stepText.includes('/') && !stepText.startsWith('0/');
+        return title && title.innerText.trim().length > 5 && stepValid;
+    }, { timeout: 20000 }).then(() => true).catch((e) => {
         logError('waitForQuestionReady', e);
         return false;
     });
@@ -679,10 +682,10 @@ async function crawlSubject(page, subject) {
                 process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
 
-                if (curr < totalNum) {
+                if (curr < totalNum || totalNum === 0) {
                     // 增强：等待“下一题”按钮出现
                     const next = await page.waitForSelector('.subject-next, #next_item, .next-btn', { timeout: 5000 }).catch(() => null);
-                    if (next) {
+                    if (next && curr < totalNum) {
                         const old = { step: data.step, id: data.itemId, title: data.title };
                         await next.click({ force: true });
                         const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp, old.title);
@@ -694,9 +697,15 @@ async function crawlSubject(page, subject) {
                             await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到下一题
                             await triggerOfficialAnalysis(page, lastContentFp);
                         }
+                    } else if (totalNum === 0) {
+                        log(`题号抓取异常 (0/0)，尝试等待 5 秒重试...`, 'WARN');
+                        await page.waitForTimeout(5000);
                     } else { 
-                        log(`未找到“下一题”按钮，章节异常终止: ${chapter.title} @ ${data.step}`, 'WARN');
-                        break; 
+                        log(`已达最后一题或按钮缺失 (curr=${curr}, total=${totalNum})`, 'INFO');
+                        completionStatus[statusKey].isFinished = true;
+                        completionStatus[statusKey].updatedAt = new Date().toLocaleString();
+                        saveStatus();
+                        break;
                     }
                 } else {
                     completionStatus[statusKey].isFinished = true;
