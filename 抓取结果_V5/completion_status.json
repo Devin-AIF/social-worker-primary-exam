@@ -430,8 +430,43 @@
     "updatedAt": "5/17/2026, 5:03:35 PM"
   },
   "39_模拟试卷_paper_id-12665": {
-    "completed": 1,
+    "completed": 2,
     "total": 78,
-    "updatedAt": "5/17/2026, 5:03:48 PM"
+    "updatedAt": "5/17/2026, 5:04:05 PM"
+  },
+  "39_模拟试卷_paper_id-158": {
+    "completed": 2,
+    "total": 80,
+    "updatedAt": "5/17/2026, 5:04:36 PM"
+  },
+  "316_章节练习_know_id-53810": {
+    "completed": 1,
+    "total": 48,
+    "updatedAt": "5/17/2026, 5:05:01 PM"
+  },
+  "316_章节练习_know_id-53809": {
+    "completed": 1,
+    "total": 46,
+    "updatedAt": "5/17/2026, 5:05:15 PM"
+  },
+  "316_章节练习_know_id-53808": {
+    "completed": 1,
+    "total": 47,
+    "updatedAt": "5/17/2026, 5:05:28 PM"
+  },
+  "316_章节练习_know_id-53807": {
+    "completed": 1,
+    "total": 49,
+    "updatedAt": "5/17/2026, 5:05:41 PM"
+  },
+  "316_章节练习_know_id-363": {
+    "completed": 1,
+    "total": 103,
+    "updatedAt": "5/17/2026, 5:05:55 PM"
+  },
+  "316_章节练习_know_id-364": {
+    "completed": 1,
+    "total": 111,
+    "updatedAt": "5/17/2026, 5:06:08 PM"
   }
 }
