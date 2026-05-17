@@ -636,12 +636,17 @@ async function crawlSubject(page, subject) {
                 let data = await readQuestionData(page);
                 let [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
                 
-                // 防御性重试：如果抓到的是 0/0 或无效值
+                // 防御性重试
                 if (isNaN(totalNum) || totalNum === 0 || isNaN(curr) || curr === 0) {
                     log(`题号读取异常 (${data.step})，等待并重试...`, 'WARN');
                     await page.waitForTimeout(4000);
                     data = await readQuestionData(page);
                     [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
+                }
+
+                if (isNaN(totalNum) || totalNum === 0) {
+                    log(`无法识别有效题号，强制设为 0 继续尝试翻页...`, 'WARN');
+                    totalNum = 0;
                 }
 
                 // 刷新检测
@@ -659,7 +664,7 @@ async function crawlSubject(page, subject) {
                         log(`内容刷新卡死，尝试强制重载页面...`, 'WARN');
                         await page.reload();
                         await randomSleep(5000, 7000);
-                        await openChapterAtQuestion(page, chapter.url, curr - 1);
+                        await openChapterAtQuestion(page, chapter.url, curr > 0 ? curr - 1 : 0);
                         await triggerOfficialAnalysis(page, lastContentFp);
                         data = await readQuestionData(page);
                     }
@@ -700,8 +705,8 @@ async function crawlSubject(page, subject) {
                         await triggerOfficialAnalysis(page, lastContentFp);
                     }
                 } else {
-                    // 只有当 curr 明确等于 totalNum 时才标记完成
-                    if (curr > 0 && curr === totalNum) {
+                    // 只有当 curr 明确等于 totalNum 且大于 0 时才标记完成
+                    if (curr > 0 && curr === totalNum && totalNum > 0) {
                         log(`\n    [完成] ${chapter.title}`, 'INFO');
                         completionStatus[statusKey].isFinished = true;
                         saveStatus();
