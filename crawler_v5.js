@@ -139,7 +139,23 @@ async function triggerOfficialAnalysis(page) {
             if (submitBtn) submitBtn.click();
         }
     });
-    await page.waitForTimeout(2500); 
+
+    // 增加：循环等待解析内容加载出来
+    for (let i = 0; i < 5; i++) {
+        const hasContent = await page.evaluate(() => {
+            const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.jiexi-content'];
+            for (const s of anaSelectors) {
+                const el = document.querySelector(s);
+                if (el && el.innerText.trim().length > 10) return true;
+            }
+            // 或者有专用答案也算
+            const ded = Array.from(document.querySelectorAll('div, span')).find(el => el.innerText.includes('正确答案：'));
+            if (ded && ded.innerText.trim().length > 5) return true;
+            return false;
+        });
+        if (hasContent) break;
+        await page.waitForTimeout(1000);
+    }
 }
 
 async function readQuestionData(page) {
