@@ -1,0 +1,422 @@
+
+<link rel="stylesheet" type="text/css" href="//img.xinxuejy.com/css/zzsc.css">
+<style>
+    img{max-width:100%;cursor:pointer}
+    #PaperTimes span{display:inline!important;}
+    #popup_box_bg {width: 100%;height: 100%;background: rgba(0,0,0,0.3);position: fixed;top: 0;right: 0;bottom: 0;left: 0;z-index: 1010;}
+    #popup_box {position: fixed;z-index: 1020;left:44%;top: 30%;border-radius: 10px;color: #fff;font-weight: bold;}
+    .level{width: 60px;height: 28px;background: #FFE42F;color:#6D6641 ;border-radius: 4px;display: inline-table;text-align: center;margin-right: 10px;}
+    .PaperTime .Time{width: 265px;margin-right: 15px;position: relative;}
+    .PaperTime a.State{width: 60px;background: #FF8141;color: #fff;height: 24px;line-height: 24px;}
+    .PaperStartTimes {width: 100px;height: 40px;line-height: 40px;text-align: center;background: #FF8141;color: #fff;font-size: 14px;cursor: pointer;}
+    .PaperTime a{height: 68px;line-height: 68px;border-radius: 4px;text-align: center;display: inline-block;font-size: 14px;}
+    .tiku-box .answer-sheet .sheet-tool a{width: 32%}
+    #t_h,#t_i,#t_s {background-color: #ff0000;padding: 2.8px 3.79px;border-radius: 2px;color: #ffffff}
+    .tiku-box .answer-sheet .sheet-card ul li{width:40px; height: 40px;}
+     .tiku-box .answer-content .subject-attr em.item_id{background-color: #CECECE;color:#FFF;line-height: 24px; margin-top: 9px;font-size: 15px; padding:1px 4px 1px 4px; border-radius: 5px;}
+     
+    .tiku-talk{}
+    .tiku-talk h1,.tiku-talk-list h1{font-size: 16px;font-family: PingFang SC;font-weight: 600;line-height: 22px;color: #000000; margin-top:10px; margin-left:4px;}
+    .tiku-talk textarea{ height:140px; border:1px sold rgba(245, 245, 246, 0.39); background-color: rgba(245, 245, 246, 0.39); width: 100%; margin-top:10px; border-radius: 5px; padding:10px; -webkit-box-sizing: border-box;-moz-box-sizing: border-box;box-sizing: border-box;}
+    .tiku-talk .talk-submit a{  float: right;}
+    .tiku-talk-list{}
+    .tiku-talk-list *{ -webkit-box-sizing: border-box;-moz-box-sizing: border-box;box-sizing: border-box; }
+    .tiku-talk-list ul{ display:block;}
+    .tiku-talk-list ul li{ display: block; margin-top:10px; border-bottom: 1px dotted #CBCBCB; padding: 15px; padding-left:0px;}
+    .tiku-talk-list .headimg { width:50px;height:50px; }
+    .tiku-talk-list .headimg.stud { background: url(//img.xinxuejy.com/tiku_style/tiku-stu.png?r=202220111748) no-repeat center center; background-size: 100%; }
+    .tiku-talk-list .headimg.terd { background: url(//img.xinxuejy.com/tiku_style/tiku-ter.png?r=202220111748) no-repeat center center; background-size: 100%; }
+    .tiku-talk-list ul li .tiwen .fr{ width:710px;}
+    .tiku-talk-list ul li.frist{ border-top:0;}
+    .tiku-talk-list ul li .name{color: #666666;font-size: 13px;margin-bottom:6px;}
+    .tiku-talk-list ul li .mesage{font-size: 14px;font-family: Source Han Sans CN;line-height: 24px;color: #2C2C2C; font-weight: 500;}
+    .tiku-talk-list ul li .time{color: #666666;font-size: 12px; margin-top:6px;}
+    .tiku-talk-list .huida{ padding-left:70px; margin-top: 20px;}
+    .tiku-talk-list ul li .huida .fr{ width:640px;}
+		.tiku-box .answer-sheet .sheet-card ul li.right,
+	.tiku-box .answer-sheet .sheet-card ul li.error{background-image: linear-gradient(#F5F5F5, #ccc);}
+	.tiku-box .answer-sheet .sheet-card ul li.cur{background-image:none;}
+	.tiku-box .answer-sheet .sheet-card ul li.right:before,
+	.tiku-box .answer-sheet .sheet-card ul li.error:before{display:none}
+	</style>
+<script src="//img.xinxuejy.com/js/zzsc.js" type="text/javascript"></script>
+<div class="tiku-box pt20 clearfix">
+    <div class="fl">
+        <div class="tiku-title pl20 bg-white">2023年中级社会工作者考试《社会工作实务》真题及答案</div>
+    </div>
+    <div class="fr">
+        <div class="tiku-time bg-white">
+                
+            <div class="PaperTime mb1 ">
+                <em class="Time">
+                    <i></i>
+                    <a rel="nofollow" class="Time" id="PaperTimes" data="8976" href="javascript:;">考试剩余时间&nbsp;&nbsp;&nbsp;&nbsp;<span id="t_h">02</span>&nbsp;&nbsp;:&nbsp;&nbsp;<span id="t_i">29</span>&nbsp;&nbsp;:&nbsp;&nbsp;<span id="t_s">36</span></a>
+                </em>
+                <a rel="nofollow" href="javascript:;" id="PaperTimesStop" class="State"><img src="//img.xinxuejy.com/tiku_style/new_exam_pause.png" alt=""> 暂停</a>
+            </div>
+                    </div>
+    </div>
+</div>
+<div class="NoRecord" id="NoRecord" style="display: none;">
+    <i class="ico"></i>
+    <p>试题加载中...</p>
+</div>
+<div class="tiku-box pt10 clearfix" id="main-tiku-box" style="">
+    <div class="fl answer-content">
+        <div class="bg-white pd10" id="itemlist">
+            <div class="subject-attr">
+                <em class="type" id="item_type">问答题</em>
+                <em class="star" id="item_star" style="display: none;"></em>
+                <em class="step" id="item_step">3/5</em>
+                <em class="collect fr">收藏</em>
+                <em class="item_id fr" id="item_id">编号：5788313</em>
+                <em class="show_child fr" style="display: none;"></em>
+            </div>
+            <div class="subject-tit mt10" id="item_title">3.针对D街道老人和儿童缺乏社区照顾的问题，社会工作服务机构与基金会联合启动了“五社联动”助力“一老一小”项目。社会工作者充分发挥资源经纪人的角色作用，通过问卷调查、入户访谈、绘制社会生态系统图和社区资源图等方式，了解老人和儿童的需求、现存人际关系，识别社区中的服务资源。在此基础上，社会工作者动员与服务对象关系密切的亲友提供支持；将处于困境中的老人和儿童推介给社区志愿服务队，建立长期的陪伴服务关系，培养成立社区互助会，组织有参与意愿的老人和儿童互相认识，互相支持，定期举办社区公益资源集市，促进爱心企业、邻居与有需要的老人及儿童对接；协助老人、儿童掌握联系和使用服务资源的方法、定期回访了解服务对接和资源使用情况。经过多方努力，针对“一老一小”的社区支持网络在D街道得以建立。<br>问题：<br>1、社会工作者在扮演资源经纪人角色时，运用了哪些服务技巧？<br>2、分析社会工作者在本案例中运用了哪些建立社区支持网络的策略?</div>
+            <div class="item_options" id="item_options"><ul class="subject-option mt20 textarea" data-optype="qa" data-isanswer="0"><div>答：</div><textarea placeholder="请回答"></textarea></ul><a href="#" class="subject-submit cur" data-submitbtype="qa">提交</a></div>
+
+        </div>
+        <div class="pt10 clearfix">
+            <a class="fl bg-white subject-last" href="#"><i>上一题</i> </a>
+            <a class="fl bg-white subject-next" href="#"><i>下一题</i></a>
+            <a class="fr bg-white subject-save" href="#"><i>保存进度并退出</i></a>
+        </div>
+        <div class="mt10 pd10 clearfix bg-white hide" id="analysis" style="display: none;">
+
+            <div class="answer-yes" id="answer_analysis">
+                <div class="tit">
+                    <span class="tips"><i></i></span>
+                    <span class="right"></span>
+                    <span href="javascript:" class="click_analysis" style="display:none;margin-left:50px">点击查看解析<i></i></span>
+                    <span class="correct fr"><i></i> 我要纠错</span>
+                </div>
+                <div class="analysis pd10"></div>
+            </div>
+        </div>
+        <div class="mt10 pd10 clearfix bg-white tiku-talk-list hide" id="talk-list">
+            <h1>试题讨论</h1>
+            <ul class="mt10"></ul>
+            <div class="morenote loadmore hide" style="text-align: center; color: #F4947D;cursor:pointer; padding-top:8px;">点击查看更多↓</div>
+            <div class="morenote endmore" style="text-align: center; color: #F4947D;cursor:pointer; padding-top:8px;">没有更多了</div>
+        </div>
+        <div class="mt10 pd10 clearfix bg-white tiku-talk hide" id="talk">
+            <h1>试题讨论</h1>
+            <textarea id="talk_message" placeholder="请您详细描述对本题的疑问，限150字"></textarea>
+            <div class="talk-submit"><a href="#" class="subject-submit cur">发表讨论</a></div>
+        </div>
+        
+    </div>
+    <div class="fr answer-sheet">
+        <div class="bg-white">
+            <div class="sheet-tool pd10">
+                                <a href="javasccript:;" class="bd_autonext cur"><i class="autonext"></i>自动下一题</a>
+                                                <a href="javasccript:;" class="bd_zt"><i class="zt"></i>字体大小</a>
+                <a href="javasccript:;" class="bd_js"><i class="js"></i>计算器</a>
+            </div>
+            <div class="pd10">
+                <span class="sheet-tit">答题卡</span>
+                <div class="sheet-card">
+                    <div class="slimScrollDiv" style="position: relative; overflow: hidden; width: auto; height: 100%;"><div class="pd10" id="tiku_sheet_card" style="overflow: hidden; width: auto; height: 100%;"><span class="sheet-card-type">问答题</span><ul data-maintype="5"><li data-itemid="5320928" data-score="20.00" data-maintype="5" data-cardindex="1" data-itemindex="0" class="">1</li><li data-itemid="5788312" data-score="20.00" data-maintype="5" data-cardindex="2" data-itemindex="1" class="">2</li><li data-itemid="5788313" data-score="20.00" data-maintype="5" data-cardindex="3" data-itemindex="2" class="cur">3</li><li data-itemid="5788314" data-score="20.00" data-maintype="5" data-cardindex="4" data-itemindex="3" class="">4</li><li data-itemid="5788322" data-score="20.00" data-maintype="5" data-cardindex="5" data-itemindex="4" class="">5</li></ul><div style="height:30px;"></div></div><div class="slimScrollBar" style="background: rgb(14, 144, 210); width: 5px; position: absolute; top: 0px; opacity: 0.4; display: none; border-radius: 7px; z-index: 99; right: 1px; height: 320px;"></div><div class="slimScrollRail" style="width: 5px; height: 100%; position: absolute; top: 0px; display: block; border-radius: 7px; background: rgb(51, 51, 51); opacity: 0.2; z-index: 90; right: 1px;"></div></div>
+                </div>
+            </div>
+            <div class="sheet-save pd10">
+                <a href="javasccript:;" class="bd_cz"><i class="cz"></i>全部重做</a>
+                <a href="javasccript:;" class="bd_bg"><i class="bg"></i>交卷</a>
+            </div>
+        </div>
+        <div class="tiku-note mt10 bg-white pd10 hide" id="nodes" style="display: none;">
+            <div class="tit"><span class="my cur" data-type="my-note">我的笔记</span>|<span class="" data-type="fi-note" style="padding-left:10px;">考友笔记</span></div>
+            <ul class="fi-note hide" style="display: none;"></ul>
+            <div class="my-note" style="display: block;">
+                <textarea placeholder="好记性不如烂笔头  自己记录的就是心得" class="note_text"></textarea>
+                <div class="clearfix">
+                    <div class="radio">
+                        <span><em class="input" data-status="1"></em> 公开</span>
+                        <span><em class="input cur" data-status="0"></em> 私密</span>
+                    </div>
+                    <a href="#" class="subject-submit cur">提交</a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+<div id="hide-images" style="display:none"></div>
+
+<!--进度保存成功--> 
+
+<!--纠错弹窗-->    
+
+
+<!-- 字体 -->
+<div class="layerFont">
+        <ul class="FontList">
+                <li>小</li>
+                <li class="cur">中</li>
+                <li>大</li>
+        </ul>
+</div>
+<!-- 计算器 start -->
+<div class="layerCalculator">
+        <form name="calc" class="container">
+                <table class="cw" id="kxjsq">
+                        <tbody>
+                        <tr>
+                                <td align="center"><input class="cw-input" readonly="" size="40" value="0" name="display"></td>
+                        </tr>
+                        <tr>
+                                <td>
+                                        <table style="width:100%">
+                                                <tbody>
+                                                <tr>
+                                                        <td><input class="cw-select" onclick="inputChangCarry(16)" type="radio" name="carry">
+                                                                十六进制
+                                                                <input class="cw-select" onclick="inputChangCarry(10)" type="radio" checked="" name="carry">
+                                                                十进制
+                                                                <input class="cw-select" onclick="inputChangCarry(8)" type="radio" name="carry">
+                                                                八进制
+                                                                <input class="cw-select" onclick="inputChangCarry(2)" type="radio" name="carry">
+                                                                二进制 </td>
+                                                        <td></td>
+                                                        <td><input class="cw-select" onclick="inputChangAngle('d')" type="radio" checked="" value="d" name="angle">
+                                                                角度制
+                                                                <input class="cw-select" onclick="inputChangAngle('r')" type="radio" value="r" name="angle">
+                                                                弧度制 </td>
+                                                </tr>
+                                                </tbody>
+                                        </table>
+                                </td>
+                        </tr>
+                        <tr>
+                                <td>
+                                        <table style="width:100%">
+                                                <tbody>
+                                                <tr>
+                                                        <td><input class="cw-select" onclick="inputshift()" type="checkbox" name="shiftf">
+                                                                上档功能
+                                                                <input class="cw-select" onclick="inputshift()" type="checkbox" name="hypf">
+                                                                双曲函数 </td>
+                                                        <td><input class="cw-show" readonly="" size="3" name="bracket">
+                                                                <input class="cw-show" readonly="" size="3" name="memory">
+                                                                <input class="cw-show" readonly="" size="3" name="operator"></td>
+                                                        <td align="right"><input class="cw-tpl" onclick="backspace()" type="button" value=" 退格 ">
+                                                                <input class="cw-tpl" onclick="document.calc.display.value = 0 " type="button" value=" 清屏 ">
+                                                                <input class="cw-tpl" onclick="clearall()" type="button" value=" 全清"></td>
+                                                </tr>
+                                                </tbody>
+                                        </table>
+                                </td>
+                        </tr>
+                        <tr>
+                                <td>
+
+                                        <table>
+                                                <tbody>
+                                                <tr>
+                                                        <td>
+                                                                <table>
+                                                                        <tbody>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-fn" onclick="inputfunction('pi','pi')" type="button" value=" PI " name="pi"></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('e','e')" type="button" value=" E  " name="e"></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('dms','deg')" type="button" value="d.ms" name="bt"></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-fn" onclick="addbracket()" type="button" value=" (  "></td>
+                                                                                <td><input class="cw-fn" onclick="disbracket()" type="button" value=" )  "></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('ln','exp')" type="button" value=" ln " name="ln"></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-fn" onclick="inputtrig('sin','arcsin','hypsin','ahypsin')" type="button" value="sin " name="sin"></td>
+                                                                                <td><input class="cw-fn" onclick="operation('^',7)" type="button" value="x^y "></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('log','expdec')" type="button" value="log " name="log"></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-fn" onclick="inputtrig('cos','arccos','hypcos','ahypcos')" type="button" value="cos " name="cos"></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('cube','cubt')" type="button" value="x^3 " name="cube"></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('!','!')" type="button" value=" n! "></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-fn" onclick="inputtrig('tan','arctan','hyptan','ahyptan')" type="button" value="tan " name="tan"></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('sqr','sqrt')" type="button" value="x^2 " name="sqr"></td>
+                                                                                <td><input class="cw-fn" onclick="inputfunction('recip','recip')" type="button" value="1/x "></td>
+                                                                        </tr>
+                                                                        </tbody>
+                                                                </table>
+                                                        </td>
+                                                        <td width="30"></td>
+                                                        <td>
+                                                                <table>
+                                                                        <tbody>
+                                                                        <tr>
+                                                                                <td><input class="cw-tpl" onclick="putmemory()" type="button" value=" 储存 "></td>
+                                                                        </tr>
+                                                                        <tr>
+                                                                                <td><input class="cw-tpl" onclick="getmemory()" type="button" value=" 取存 "></td>
+                                                                        </tr>
+                                                                        <tr>
+                                                                                <td><input class="cw-tpl" onclick="addmemory()" type="button" value=" 累存 "></td>
+                                                                        </tr>
+                                                                        <tr>
+                                                                                <td><input class="cw-tpl" onclick="multimemory()" type="button" value=" 积存 "></td>
+                                                                        </tr>
+                                                                        <tr>
+                                                                                <td><input class="cw-tpl" onclick="clearmemory()" type="button" value=" 清存 "></td>
+                                                                        </tr>
+                                                                        </tbody>
+                                                                </table>
+                                                        </td>
+                                                        <td width="30"></td>
+                                                        <td>
+                                                                <table>
+                                                                        <tbody>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-num" onclick="inputkey('7')" type="button" value=" 7 " name="k7"></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('8')" type="button" value=" 8 " name="k8"></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('9')" type="button" value=" 9 " name="k9"></td>
+                                                                                <td><input class="cw-x" onclick="operation('/',6)" type="button" value=" / "></td>
+                                                                                <td><input class="cw-tpl" onclick="operation('%',6)" type="button" value="取余"></td>
+                                                                                <td><input class="cw-tpl" onclick="operation('&amp;',3)" type="button" value=" 与 "></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-num" onclick="inputkey('4')" type="button" value=" 4 " name="k4"></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('5')" type="button" value=" 5 " name="k5"></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('6')" type="button" value=" 6 " name="k6"></td>
+                                                                                <td><input class="cw-x" onclick="operation('*',6)" type="button" value=" * "></td>
+                                                                                <td><input class="cw-tpl" onclick="inputfunction('floor','deci')" type="button" value="取整" name="floor"></td>
+                                                                                <td><input class="cw-tpl" onclick="operation('|',1)" type="button" value=" 或 "></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-num" onclick="inputkey('1')" type="button" value=" 1 "></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('2')" type="button" value=" 2 " name="k2"></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('3')" type="button" value=" 3 " name="k3"></td>
+                                                                                <td><input class="cw-x" onclick="operation('-',5)" type="button" value=" - "></td>
+                                                                                <td><input class="cw-tpl" onclick="operation('&lt;',4)" type="button" value="左移"></td>
+                                                                                <td><input class="cw-tpl" onclick="inputfunction('~','~')" type="button" value=" 非 "></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-num" onclick="inputkey('0')" type="button" value=" 0 "></td>
+                                                                                <td><input class="cw-num" onclick="changeSign()" type="button" value="+/-"></td>
+                                                                                <td><input class="cw-num" onclick="inputkey('.')" type="button" value=" . " name="kp"></td>
+                                                                                <td><input class="cw-x" onclick="operation('+',5)" type="button" value=" + "></td>
+                                                                                <td><input class="cw-fn cw-enter" onclick="result()" type="button" value=" ＝ "></td>
+                                                                                <td><input class="cw-tpl" onclick="operation('x',2)" type="button" value="异或"></td>
+                                                                        </tr>
+                                                                        <tr align="middle">
+                                                                                <td><input class="cw-x" disabled="" onclick="inputkey('a')" type="button" value=" A " name="ka"></td>
+                                                                                <td><input class="cw-x" disabled="" onclick="inputkey('b')" type="button" value=" B " name="kb"></td>
+                                                                                <td><input class="cw-x" disabled="" onclick="inputkey('c')" type="button" value=" C " name="kc"></td>
+                                                                                <td><input class="cw-x" disabled="" onclick="inputkey('d')" type="button" value=" D " name="kd"></td>
+                                                                                <td><input class="cw-x" disabled="" onclick="inputkey('e')" type="button" value=" E　" name="ke"></td>
+                                                                                <td><input class="cw-x" disabled="" onclick="inputkey('f')" type="button" value=" F　" name="kf"></td>
+                                                                        </tr>
+                                                                        </tbody>
+                                                                </table>
+                                                        </td>
+                                                </tr>
+                                                </tbody>
+                                        </table>
+                                </td>
+                        </tr>
+                        </tbody>
+                </table>
+        </form>
+</div>
+
+<!-- 答题报告 -->
+<div class="layerReport">
+    <div class="tiku-report clearfix">
+        <div class="sheet-card">
+            <div class="tit">
+                <h2></h2>
+                <div class="dd">
+                    <span>题数：</span><span class="mr20" data-type="itemnum">0</span>
+                    <span class="yes mr20" data-type="itemyes">0</span>
+                    <span class="err mr20" data-type="itemerr">0</span>
+                    <span class="zql">正确率：</span><span data-type="itempro">0</span>
+                </div>
+                <div class="defen">得分：<span data-type="defen">0分</span></div>
+            </div>
+            <div class="pd10" id="tiku_sheet_card_report">
+                
+                
+            </div>
+            <div class="report_bottom">
+                <a href="#" class="ct" style="display: none;"></a>
+                <a href="#" class="cz"></a>
+                <a href="#" class="jx"></a>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="//img.xinxuejy.com/tiku_style/jquery.slimscroll.min.js"></script>
+<script>
+    var exam_id='82';
+    var uri_params = 'product_id=317&paper_id=13738&subject_id=107&records_type=2&is_again=0';
+    var product_id = '317';
+    var paper_id = '13738';
+    var types = '';
+    var records_type = '2';
+    var err_review = '0';
+    var position ='1';
+    var remove_remark = '';
+    var remove_link = "/Tiku/Product/index/product_id/317.html";
+    var isHealthQual = (exam_id == 243);
+</script>
+<script src="//img.xinxuejy.com/tiku_style/ai_analysis.js?r=25102902"></script>
+<script src="//img.xinxuejy.com/tiku_style/video_analysis.js?r=26030215"></script>
+<script src="//img.xinxuejy.com/tiku_style/papers_new_exam24.js?r=26031201"></script>
+<script>
+    var new_test_item_num=0;
+    var submissions_num=0;
+    document.oncontextmenu=new Function("event.returnValue=false");
+    document.onselectstart=new Function("event.returnValue=false");
+    // xs_decrypt('vRqkWnvdYIDnban3cnRXjgydOBIUtS1ogXA5H8hnO4k=');
+
+    //   console.log('types:ok');
+    var submissions=  setInterval(()=>{
+        if(new_test_item_num<3){  return false;}
+        let mo=Math.floor( new_test_item_num/3);
+        if(mo>submissions_num){
+            saveSspeed(()=>{ console.log('saveok')}) ;
+            submissions_num++;
+        }
+    },10000);
+
+    //图片放大：
+    $('.answer-content').on('click', 'img', function (e) {
+        var src = $(this).attr('src');
+        $('#hide-images').html('<a href=\'' + src + '\'><img src=\'' + src + '\'></a>');
+        $('#hide-images').find('a').lighterbox({ overlayColor : "white" });
+        $('#hide-images').find('a').click();
+        //图片放大缩小：
+        const imgView = document.querySelector(".lighterbox-img");
+        // 鼠标经过事件
+        imgView.onmouseover = (e1) => {
+            if (e1.target.nodeName === "IMG") {
+                var img = e1.target;
+                var widthW = img.width;
+                var mt = parseInt(img.style.marginTop);
+                var mr = parseInt(img.style.marginRight);
+                img.style.cursor = 'pointer';
+                img.style.height = 'auto';
+                img.onmousewheel = (e) => {
+                    if(e.wheelDelta < 0){
+                        widthW-=10
+                        mt += 5;
+                        mr += 5;
+                    }else{
+                        widthW+=10;
+                        mt -= 5;
+                        mr -= 5;
+                    }
+                    img.style.width = widthW + 'px';
+                    img.style.marginTop = mt + 'px';
+                    img.style.marginRight = mr + 'px';
+                };
+            }
+        };
+    });
+</script>
+
+			<div class="right-float-box23">				<ul class="float_btn_list23"><li></li><li></li><li></li><li></li></ul>				<div class="float_btn_top23" style="display: none;"></div>			</div>			<div class="right-float-qrcode23"><img src="https://img.xinxuejy.com/static/img/qr-code-weixin.png"></div>			<div class="right-float-tel23">400-696-5915</div>
