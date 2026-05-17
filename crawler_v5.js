@@ -22,8 +22,8 @@ function askUser(query) {
 
 // --- 配置与常量 ---
 const AUTH = {
-    user: process.env.XS507_USER || '13510922043',
-    pass: process.env.XS507_PASS || '265567'
+    user: process.env.XS507_USER,
+    pass: process.env.XS507_PASS
 };
 
 const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
@@ -43,6 +43,10 @@ function log(message, type = 'INFO') {
     const formattedMessage = `[${timestamp}] [${type}] ${message}\n`;
     process.stdout.write(formattedMessage);
     fs.appendFileSync(LOG_FILE, formattedMessage);
+}
+function logError(scope, error) {
+    const message = error?.message || String(error);
+    log(`${scope} 失败: ${message}`, 'ERROR');
 }
 
 function sanitizeFileName(name) {
@@ -75,7 +79,7 @@ async function handlePopup(page) {
 }
 
 async function installDomGuard(page) {
-    await page.evaluate(() => {
+    return await page.evaluate(() => {
         if (window.__crawlerDomGuardInstalled) return;
         window.__crawlerDomGuardInstalled = true;
         const cleanup = () => {
@@ -85,7 +89,10 @@ async function installDomGuard(page) {
         cleanup();
         const observer = new MutationObserver(cleanup);
         observer.observe(document.body, { childList: true, subtree: true });
-    }).catch(() => {});
+    }).then(() => true).catch((e) => {
+        logError('installDomGuard', e);
+        return false;
+    });
 }
 
 async function safeClick(page, selector, waitAfter = 0) {
@@ -262,17 +269,22 @@ async function readQuestionData(page) {
 // --- 导航控制 ---
 
 async function waitForQuestionReady(page) {
-    await page.waitForFunction(() => {
+    const ready = await page.waitForFunction(() => {
         const title = document.querySelector('#item_title, .item-title, .subject-title');
         const step = document.querySelector('#item_step, .item-step');
         return title && title.innerText.trim().length > 0 && step && step.innerText.includes('/');
-    }, { timeout: 15000 }).catch(() => {});
+    }, { timeout: 15000 }).then(() => true).catch((e) => {
+        logError('waitForQuestionReady', e);
+        return false;
+    });
+    if (!ready) return false;
     await installDomGuard(page);
+    return true;
 }
 
 async function waitForQuestionChange(page, oldId, oldStep, oldContentFp) {
     // 强制等待：ID必须变，或者内容必须变（应对ID不变但内容刷新的情况）
-    await page.waitForFunction(({ oldId, oldStep, oldContentFp }) => {
+    const changed = await page.waitForFunction(({ oldId, oldStep, oldContentFp }) => {
         const curId = (document.querySelector('#item_id')?.innerText || '').replace(/编号：/g, '').trim();
         const curStep = (document.querySelector('#item_step, .item-step')?.innerText || '').trim();
         
@@ -281,9 +293,14 @@ async function waitForQuestionChange(page, oldId, oldStep, oldContentFp) {
         const stepChanged = curStep && curStep !== oldStep;
         
         return idChanged || stepChanged;
-    }, { oldId, oldStep, oldContentFp }, { timeout: 10000 }).catch(() => {});
+    }, { oldId, oldStep, oldContentFp }, { timeout: 10000 }).then(() => true).catch((e) => {
+        logError(`waitForQuestionChange(oldId=${oldId}, oldStep=${oldStep})`, e);
+        return false;
+    });
     
+    if (!changed) return false;
     await randomSleep(1500, 2500); // 自然等待 AJAX 加载
+    return true;
 }
 
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
@@ -304,7 +321,8 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
         if (btn) btn.click();
     });
     await randomSleep(5000, 7000);
-    await waitForQuestionReady(page);
+    const ready = await waitForQuestionReady(page);
+    if (!ready) throw new Error('章节打开后题目未就绪');
 
     if (questionIndex > 0) {
         log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
@@ -315,26 +333,70 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
             if (cards[index]) cards[index].click();
         }, questionIndex);
         await randomSleep(3000, 5000);
-        await waitForQuestionReady(page);
+        const moved = await waitForQuestionReady(page);
+        if (!moved) throw new Error(`跳题失败，目标题号: ${questionIndex + 1}`);
     }
 }
 
 async function downloadImage(url, dest) {
     if (!url) return;
-    try {
-        let fullUrl = url.startsWith('//') ? `https:${url}` : (url.startsWith('http') ? url : `https://www.xs507.com/${url}`);
-        const protocol = fullUrl.startsWith('https') ? https : http;
-        await new Promise((resolve, reject) => {
+    const tempDest = `${dest}.tmp`;
+    const fetchWithRedirect = (fullUrl, redirectsLeft = 3) => {
+        return new Promise((resolve, reject) => {
+            const protocol = fullUrl.startsWith('https') ? https : http;
             const request = protocol.get(fullUrl, (response) => {
-                if (response.statusCode === 200) {
-                    const file = fs.createWriteStream(dest);
-                    response.pipe(file);
-                    file.on('finish', () => { file.close(); resolve(); });
-                } else { reject(new Error(response.statusCode)); }
+                const statusCode = response.statusCode || 0;
+                if ([301, 302, 303, 307, 308].includes(statusCode)) {
+                    const location = response.headers.location;
+                    response.resume();
+                    if (!location || redirectsLeft <= 0) {
+                        reject(new Error(`重定向失败: ${statusCode}`));
+                        return;
+                    }
+                    const nextUrl = new URL(location, fullUrl).toString();
+                    resolve(fetchWithRedirect(nextUrl, redirectsLeft - 1));
+                    return;
+                }
+
+                if (statusCode !== 200) {
+                    response.resume();
+                    reject(new Error(`HTTP ${statusCode}`));
+                    return;
+                }
+
+                const file = fs.createWriteStream(tempDest);
+                response.pipe(file);
+                file.on('finish', () => {
+                    file.close((closeErr) => {
+                        if (closeErr) {
+                            reject(closeErr);
+                            return;
+                        }
+                        fs.rename(tempDest, dest, (renameErr) => {
+                            if (renameErr) {
+                                reject(renameErr);
+                                return;
+                            }
+                            resolve();
+                        });
+                    });
+                });
+                file.on('error', (err) => {
+                    fs.unlink(tempDest, () => {});
+                    reject(err);
+                });
             });
+            request.setTimeout(10000, () => request.destroy(new Error('下载超时')));
             request.on('error', (e) => reject(e));
         });
-    } catch (e) {}
+    };
+    try {
+        let fullUrl = url.startsWith('//') ? `https:${url}` : (url.startsWith('http') ? url : `https://www.xs507.com/${url}`);
+        await fetchWithRedirect(fullUrl);
+    } catch (e) {
+        fs.unlink(tempDest, () => {});
+        log(`图片下载失败: ${url} -> ${dest} (${e?.message || e})`, 'WARN');
+    }
 }
 
 const MONITOR = {
@@ -414,12 +476,21 @@ async function crawlSubject(page, subject) {
             if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
             log(`    [开始] ${chapter.title} (进度: ${startFrom})`, 'INFO');
-            await openChapterAtQuestion(page, chapter.url, startFrom);
+            try {
+                await openChapterAtQuestion(page, chapter.url, startFrom);
+            } catch (e) {
+                log(`    [失败] ${chapter.title} 打开章节失败: ${e?.message || e}`, 'ERROR');
+                continue;
+            }
 
             let lastContentFp = '';
             let lastId = '';
             while (true) {
-                await waitForQuestionReady(page);
+                const ready = await waitForQuestionReady(page);
+                if (!ready) {
+                    log(`题目加载超时，章节终止: ${chapter.title}`, 'ERROR');
+                    break;
+                }
                 await triggerOfficialAnalysis(page);
 
                 let data = await readQuestionData(page);
@@ -467,7 +538,11 @@ async function crawlSubject(page, subject) {
                     if (next) {
                         const old = { step: data.step, id: data.itemId };
                         await next.click({ force: true });
-                        await waitForQuestionChange(page, old.id, old.step, lastContentFp);
+                        const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp);
+                        if (!changed) {
+                            log(`翻页失败，章节终止: ${chapter.title} @ ${old.step}`, 'ERROR');
+                            break;
+                        }
                     } else { break; }
                 } else {
                     completionStatus[statusKey].isFinished = true;
@@ -483,32 +558,48 @@ async function crawlSubject(page, subject) {
 
 async function run() {
     log('开启归简版抓取器...', 'INFO');
-    const browser = await chromium.launch({ headless: false });
-    const page = await (await browser.newContext()).newPage();
-
+    let browser;
+    let page;
     try {
-        await page.goto(LOGIN_URL);
-        await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
-        await page.fill('input[placeholder*="手机号"]', AUTH.user);
-        await page.fill('input[placeholder*="密码"]', AUTH.pass);
-        await page.click('.login-form-btn');
-        await page.waitForTimeout(6000);
-    } catch (e) {}
+        if (!AUTH.user || !AUTH.pass) {
+            throw new Error('缺少环境变量 XS507_USER 或 XS507_PASS，请先设置后再运行');
+        }
 
-    if (fs.existsSync(STATUS_FILE)) { try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch(e) {} }
+        browser = await chromium.launch({ headless: false });
+        page = await (await browser.newContext()).newPage();
 
-    const ALL_SUBJECTS = [
-        { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' },
-        { name: '2026年中级社会工作者《中级社会工作法规与政策》考试题库', productId: '39' },
-        { name: '2026年中级社会工作者《中级社会工作综合能力》考试题库', productId: '316' },
-        { name: '2026年初级社会工作者《初级社会工作实务》考试题库', productId: '1525' },
-        { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
-    ];
+        try {
+            await page.goto(LOGIN_URL);
+            await page.click('.login-form-agree i', { timeout: 2000 }).catch(() => {});
+            await page.fill('input[placeholder*=\"手机号\"]', AUTH.user);
+            await page.fill('input[placeholder*=\"密码\"]', AUTH.pass);
+            await page.click('.login-form-btn');
+            await page.waitForTimeout(6000);
+        } catch (e) {
+            logError('登录流程', e);
+            throw e;
+        }
 
-    for (const subject of ALL_SUBJECTS) { await crawlSubject(page, subject); }
-    MONITOR.printSummary();
-    await browser.close();
-    rl.close();
+        try {
+            if (fs.existsSync(STATUS_FILE)) completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8'));
+        } catch (e) {
+            log(`状态文件解析失败，将从空状态开始: ${e?.message || e}`, 'WARN');
+        }
+
+        const ALL_SUBJECTS = [
+            { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' },
+            { name: '2026年中级社会工作者《中级社会工作法规与政策》考试题库', productId: '39' },
+            { name: '2026年中级社会工作者《中级社会工作综合能力》考试题库', productId: '316' },
+            { name: '2026年初级社会工作者《初级社会工作实务》考试题库', productId: '1525' },
+            { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
+        ];
+
+        for (const subject of ALL_SUBJECTS) { await crawlSubject(page, subject); }
+        MONITOR.printSummary();
+    } finally {
+        if (browser) await browser.close().catch((e) => log(`关闭浏览器失败: ${e?.message || e}`, 'WARN'));
+        if (!rl.closed) rl.close();
+    }
 }
 
-run().catch(e => { console.error(e); rl.close(); });
+run().catch(e => { console.error(e); process.exitCode = 1; });
