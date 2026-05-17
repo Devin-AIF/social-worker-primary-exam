@@ -112,18 +112,6 @@ async function safeClick(page, selector, waitAfter = 0) {
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content', '.analysis-box', '.answer-analysis', '.jiexi-content'];
-        let hasVisibleAnalysis = false;
-        for (const s of anaSelectors) {
-            const el = document.querySelector(s);
-            // 只要有字且长度够，就认为解析已出
-            if (el && el.innerText.trim().length > 15) {
-                hasVisibleAnalysis = true;
-                break;
-            }
-        }
-        if (hasVisibleAnalysis) return;
-
         // 1. 尝试暴力显示所有隐藏的解析容器
         document.querySelectorAll('#analysis, .analysis, .answer-yes, .click_analysis, .analysis-box').forEach(el => {
             el.style.display = 'block';
@@ -320,7 +308,7 @@ async function readQuestionData(page) {
             options: fetchOptions(), answer: finalAnswer, analysis: finalAnalysis, 
             images,
             fingerprint: (itemId + step).replace(/\s/g, ''),
-            contentFingerprint: (finalAnswer + finalAnalysis).replace(/\s/g, '').substring(0, 100),
+            contentFingerprint: (finalAnalysis).replace(/\s/g, '').substring(0, 100) || (finalAnswer + step).replace(/\s/g, ''),
             rawHtml: (finalAnalysis === '无解析') ? document.body.innerHTML : null
         };
     });
