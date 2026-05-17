@@ -106,34 +106,34 @@ async function safeClick(page, selector, waitAfter = 0) {
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content', '.analysis-box', '.answer-analysis'];
         let hasVisibleAnalysis = false;
         for (const s of anaSelectors) {
             const el = document.querySelector(s);
-            if (el && el.offsetParent !== null && el.innerText.trim().length > 15) {
+            if (el && el.innerText.trim().length > 15) {
                 hasVisibleAnalysis = true;
                 break;
             }
         }
-        // 如果已经自然显示解析了，绝对不要去点按钮，防止点到“收起”
         if (hasVisibleAnalysis) return;
 
-        const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn'];
+        const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.view-answer'];
         clickSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(btn => {
                 const text = (btn.innerText || '').trim();
                 if (text.includes('收起')) return;
-                if (btn.offsetParent !== null || text.includes('解析') || text.includes('答案')) {
+                // 针对问答题，增加“查看答案”、“显示答案”等判断
+                if (btn.offsetParent !== null || /解析|答案|显示|查看/.test(text)) {
                     btn.click();
                 }
             });
         });
     });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000); // 增加等待时间，确保解析加载
 }
 
 async function readQuestionData(page) {
-    return page.evaluate(() => {
+    const data = await page.evaluate(() => {
         const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
 
         const step = (document.querySelector('#item_step, .item-step')?.innerText || '0/0').trim();
@@ -143,7 +143,7 @@ async function readQuestionData(page) {
         const processContent = (el, prefix) => {
             if (!el) return '';
             const clone = el.cloneNode(true);
-            const junkSelectors = ['.click_analysis', '.err_correct', '.remove_wrong', '.video_analysis', '.subject-action', '.analysis-action', 'button', 'a', '.report-error', '.show_child', '.fr'];
+            const junkSelectors = ['.err_correct', '.remove_wrong', '.video_analysis', '.subject-action', '.analysis-action', '.report-error', '.show_child', '.fr'];
             junkSelectors.forEach(s => clone.querySelectorAll(s).forEach(sub => sub.remove()));
             
             clone.querySelectorAll('img').forEach((img, idx) => {
@@ -177,12 +177,12 @@ async function readQuestionData(page) {
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
 
-        // 1. 提取答案 (仅限可见节点)
-        const ansSelectors = ['.right', '.answer-yes .right', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer'];
+        // 1. 提取答案
+        const ansSelectors = ['.right', '.answer-yes .right', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer', '.answer-text'];
         for (const s of ansSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
-                if (isVisible(el)) {
+                if (isVisible(el) || el.innerText.length > 0) {
                     let t = el.innerText.replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').trim();
                     if (t && t.length > 0) { finalAnswer = t; break; }
                 }
@@ -190,33 +190,31 @@ async function readQuestionData(page) {
             if (finalAnswer !== '未知') break;
         }
 
-        // 2. 提取解析全文 (仅限可见节点)
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis .analysis', '.jiexi-content', '.solution', '#analysis', '.analysis'];
+        // 2. 提取解析全文
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis .analysis', '.jiexi-content', '.solution', '#analysis', '.analysis', '.analysis-box', '.answer-analysis'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
-                if (isVisible(el)) {
-                    const candidate = processContent(el, 'ans');
-                    if (candidate && candidate.length > 10 && !candidate.includes('点击查看解析')) {
-                        fullAnaText = candidate;
-                        break;
-                    }
+                // 即使不可见也尝试提取，防止是因为 CSS 隐藏导致的
+                const candidate = processContent(el, 'ans');
+                if (candidate && candidate.length > 5) {
+                    fullAnaText = candidate;
+                    break;
                 }
             }
             if (fullAnaText) break;
         }
 
-        // 3. 拆分逻辑 (兼容主观题)
+        // 3. 拆分逻辑 (增加对问答题的支持)
         if (fullAnaText) {
-            const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析)[：:\n]/);
+            const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析|参考答案|答案)[：:\n]/);
             if (anaMatch) {
                 const parts = fullAnaText.split(anaMatch[0]);
-                if (finalAnswer === '未知') finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim();
-                finalAnalysis = parts.slice(1).join(anaMatch[0]).trim();
-            } else if (fullAnaText.includes('参考答案：') || fullAnaText.includes('正确答案：')) {
-                finalAnswer = fullAnaText.replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').split('\n')[0].trim();
-                finalAnalysis = fullAnaText;
+                if (finalAnswer === '未知' && (fullAnaText.includes('答案') || fullAnaText.includes('参考'))) {
+                     finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim() || '见解析';
+                }
+                finalAnalysis = fullAnaText.trim();
             } else {
                 finalAnalysis = fullAnaText;
             }
@@ -227,9 +225,17 @@ async function readQuestionData(page) {
             options: fetchOptions(), answer: finalAnswer, analysis: finalAnalysis, 
             images,
             fingerprint: (itemId + step).replace(/\s/g, ''),
-            contentFingerprint: (finalAnswer + finalAnalysis).replace(/\s/g, '').substring(0, 100)
+            contentFingerprint: (finalAnswer + finalAnalysis).replace(/\s/g, '').substring(0, 100),
+            rawHtml: (finalAnalysis === '无解析') ? document.body.innerHTML : null
         };
     });
+    
+    if (data.analysis === '无解析' && data.rawHtml) {
+        const debugPath = path.join(DEBUG_DIR, `missing_analysis_${data.itemId}_${data.step.replace('/', '_')}.html`);
+        fs.writeFileSync(debugPath, data.rawHtml);
+        log(`[DEBUG] 缺失解析，已保存页面快照: ${debugPath}`, 'DEBUG');
+    }
+    return data;
 }
 
 // --- 导航控制 ---
