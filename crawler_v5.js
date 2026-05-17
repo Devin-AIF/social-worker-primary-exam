@@ -359,19 +359,37 @@ async function crawlSubject(page, subject) {
         if (!fs.existsSync(typeDir)) fs.mkdirSync(typeDir, { recursive: true });
 
         await page.goto(cat.url).catch(() => {});
-        await randomSleep(3000, 5000);
+        await randomSleep(4000, 6000);
+        
+        // 分类页截图
+        await page.screenshot({ path: path.join(DEBUG_DIR, `cat_${subject.productId}_${cat.name}.png`) });
 
         const chapters = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a'))
-                .filter(a => (a.innerText.includes('模式') || a.innerText.includes('做题')) && a.href.includes('product_id'))
-                .map(a => {
-                    const p = a.closest('li, tr, .item');
-                    const title = p?.querySelector('.title, .name')?.innerText.trim() || a.innerText.trim();
-                    const url = a.href;
+            const list = Array.from(document.querySelectorAll('a, .item, .big, tr'))
+                .filter(el => {
+                    const text = el.innerText || '';
+                    const href = el.href || (el.querySelector('a')?.href) || '';
+                    return (text.includes('模式') || text.includes('做题') || text.includes('进入')) && href.includes('product_id');
+                })
+                .map(el => {
+                    const a = el.tagName === 'A' ? el : el.querySelector('a');
+                    const title = el.innerText.split('\n')[0].trim();
+                    const url = a?.href || '';
                     let idMatch = url.match(/(paper_id|know_id)[\/=](\d+)/);
-                    return { title, url, id: idMatch ? `${idMatch[1]}-${idMatch[2]}` : '' };
-                }).filter((c, i, l) => l.findIndex(x => x.url === c.url) === i);
+                    const id = idMatch ? `${idMatch[1]}-${idMatch[2]}` : '';
+                    return { title, url, id };
+                })
+                .filter(c => c.url && c.id);
+            
+            const seen = new Set();
+            return list.filter(ch => {
+                if (seen.has(ch.url)) return false;
+                seen.add(ch.url);
+                return true;
+            });
         });
+
+        log(`在该分类下发现 ${chapters.length} 个章节`, 'INFO');
 
         for (const chapter of chapters) {
             const statusKey = `${subject.productId}_${cat.name}_${sanitizeFileName(chapter.title)}_${buildStableChapterKey(chapter)}`;
