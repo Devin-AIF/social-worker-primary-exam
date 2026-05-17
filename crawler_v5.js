@@ -212,7 +212,15 @@ async function readQuestionData(page) {
         const anaSelectors = [
             '.answer-qa .analysis > div:first-child', // 2023真题核心：参考答案和要点都在第一个div
             '#answer_analysis .analysis > div:first-child',
-            '#analysis .analysis > div:first-child'
+            '#analysis .analysis > div:first-child',
+            '#answer_analysis .analysis',
+            '#analysis .analysis',
+            '.answer-qa .analysis',
+            '.analysis',
+            '.answer-content',
+            '.analysis-box',
+            '.answer-analysis',
+            '.jiexi-content'
         ];
         
         let fullAnaText = '';
@@ -349,6 +357,17 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
 
 async function downloadImage(url, dest) {
     if (!url) return;
+    if (url.startsWith('data:')) {
+        try {
+            const parts = url.split(',');
+            if (parts.length < 2) return;
+            const buffer = Buffer.from(parts[1], 'base64');
+            fs.writeFileSync(dest, buffer);
+        } catch (e) {
+            log(`Base64图片保存失败: ${e.message}`, 'WARN');
+        }
+        return;
+    }
     const tempDest = `${dest}.tmp`;
     const fetchWithRedirect = (fullUrl, redirectsLeft = 3) => {
         return new Promise((resolve, reject) => {
@@ -510,6 +529,7 @@ async function crawlSubject(page, subject) {
                     break;
                 }
                 await triggerOfficialAnalysis(page);
+                await page.waitForTimeout(1500); 
 
                 let data = await readQuestionData(page);
                 
