@@ -336,40 +336,38 @@ async function waitForQuestionReady(page) {
     return true;
 }
 
-async function waitForQuestionChange(page, oldId, oldStep, oldContentFp) {
-    // 1. 翻页前清理 DOM，防止读取到残留数据
+async function waitForQuestionChange(page, oldId, oldStep, oldContentFp, oldTitle) {
+    // 1. “核弹级”清理：清空所有可能残留数据的区域
     await page.evaluate(() => {
-        const cleaners = ['#item_title', '#item_options', '.analysis', '#answer_analysis', '#analysis', '.answer-yes', '.right-answer'];
-        cleaners.forEach(s => {
-            document.querySelectorAll(s).forEach(el => {
-                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value = '';
-                else el.innerHTML = '';
-            });
+        const selectors = [
+            '#item_title', '.item-title', '#item_options', '.options', 
+            '.analysis', '#answer_analysis', '#analysis', '.answer-yes', 
+            '.right-answer', '.jiexi-content', '.answer-content'
+        ];
+        selectors.forEach(s => {
+            document.querySelectorAll(s).forEach(el => { el.innerHTML = ''; if(el.value) el.value=''; });
         });
+        // 隐藏这些区域，确保只有新触发的才会显示
+        document.querySelectorAll('.analysis, #analysis, #answer_analysis').forEach(el => el.style.display = 'none');
     }).catch(() => {});
 
-    // 2. 强制等待：ID必须变，或者内容必须变（应对ID不变但内容刷新的情况）
-    const changed = await page.waitForFunction(({ oldId, oldStep, oldContentFp }) => {
+    const changed = await page.waitForFunction(({ oldId, oldStep, oldTitle }) => {
         const curId = (document.querySelector('#item_id')?.innerText || '').replace(/编号：/g, '').trim();
         const curStep = (document.querySelector('#item_step, .item-step')?.innerText || '').trim();
+        const curTitle = (document.querySelector('#item_title, .item-title')?.innerText || '').trim();
         
-        // 判定刷新成功的条件
         const idChanged = curId && curId !== oldId;
         const stepChanged = curStep && curStep !== oldStep;
-        
-        // 且标题必须有新内容
-        const title = document.querySelector('#item_title, .item-title')?.innerText.trim();
-        const titleReady = title && title.length > 0;
+        const titleReady = curTitle && curTitle.length > 5 && curTitle !== oldTitle;
 
         return (idChanged || stepChanged) && titleReady;
-    }, { oldId, oldStep, oldContentFp }, { timeout: 10000 }).then(() => true).catch((e) => {
-        logError(`waitForQuestionChange(oldId=${oldId}, oldStep=${oldStep})`, e);
+    }, { oldId, oldStep, oldTitle }, { timeout: 15000 }).then(() => true).catch((e) => {
+        logError(`waitForQuestionChange`, e);
         return false;
     });
-    
-    if (!changed) return false;
-    await randomSleep(2000, 3500); // 延长自然等待，确保解析也加载完成
-    return true;
+
+    if (changed) await randomSleep(2500, 4000); // 预留充足时间给 AJAX
+    return changed;
 }
 
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
@@ -665,9 +663,9 @@ async function crawlSubject(page, subject) {
                 if (curr < totalNum) {
                     const next = await page.$('.subject-next, #next_item');
                     if (next) {
-                        const old = { step: data.step, id: data.itemId };
+                        const old = { step: data.step, id: data.itemId, title: data.title };
                         await next.click({ force: true });
-                        const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp);
+                        const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp, old.title);
                         if (!changed) {
                             log(`翻页失败，章节终止: ${chapter.title} @ ${old.step}`, 'ERROR');
                             break;
