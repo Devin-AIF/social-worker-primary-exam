@@ -155,13 +155,14 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
 async function readQuestionData(page) {
     const data = await page.evaluate(() => {
         const getStepText = () => {
-            const potential = Array.from(document.querySelectorAll('div, span, b, strong, p, .item_type_pos, #item_step, .item-step'))
-                .map(el => {
-                    const m = el.innerText.match(/(\d+)\s*\/\s*(\d+)/);
-                    return m ? m[0].replace(/\s/g, '') : null;
-                })
-                .filter(t => t && !t.startsWith('0/'));
-            return potential[0] || '0/0';
+            const els = Array.from(document.querySelectorAll('div, span, b, strong, p, li, .item_type_pos, #item_step, .item-step, .subject-step, .subject-type-box'));
+            const matches = els.map(el => {
+                const text = el.innerText.trim();
+                const m = text.match(/(\d+)\s*\/\s*(\d+)/);
+                if (m && m[1] !== '0') return m[0].replace(/\s/g, '');
+                return null;
+            }).filter(Boolean);
+            return matches[0] || '0/0';
         };
         const stepRaw = getStepText();
 
