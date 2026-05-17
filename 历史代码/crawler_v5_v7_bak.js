@@ -791,6 +791,11 @@ async function run() {
     ];
 
     for (const subject of ALL_SUBJECTS) {
+        const finishKey = `SUBJECT_FINISHED_${subject.productId}`;
+        if (completionStatus[finishKey] && completionStatus[finishKey].isFinished) {
+            log(`科目 [${subject.name}] 已标记为整体完成，跳过。`, 'INFO');
+            continue;
+        }
         try {
             await crawlSubject(page, subject);
         } catch (e) {
