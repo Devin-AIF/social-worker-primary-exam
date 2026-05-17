@@ -244,10 +244,10 @@ async function readQuestionData(page) {
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const el = document.querySelector(s);
-            // 物理隔离检测：必须可见，且不是题目内容
-            if (el && isVisible(el)) {
+            // 物理隔离检测：必须可见 (offsetParent !== null)，且长度足够，且不是题目内容
+            if (el && el.offsetParent !== null && isVisible(el)) {
                 const candidate = processContent(el, 'ans');
-                if (candidate && candidate.length > 5 && !titleText.includes(candidate.substring(0, 50))) {
+                if (candidate && candidate.length > 10 && !titleText.includes(candidate.substring(0, 50))) {
                     fullAnaText = candidate;
                     break;
                 }
@@ -630,8 +630,7 @@ async function crawlSubject(page, subject) {
                     log(`题目加载超时，章节终止: ${chapter.title}`, 'ERROR');
                     break;
                 }
-                await triggerOfficialAnalysis(page);
-                await page.waitForTimeout(1500); 
+                await triggerOfficialAnalysis(page, lastContentFp);
 
                 let data = await readQuestionData(page);
                 const [curr, totalNum] = data.step.split('/').map(Number);
@@ -643,7 +642,7 @@ async function crawlSubject(page, subject) {
                     let success = false;
                     for(let i=0; i<3; i++) {
                         await page.waitForTimeout(2500);
-                        await triggerOfficialAnalysis(page);
+                        await triggerOfficialAnalysis(page, lastContentFp);
                         data = await readQuestionData(page);
                         if (data.contentFingerprint !== lastContentFp) { success = true; break; }
                     }
@@ -654,8 +653,7 @@ async function crawlSubject(page, subject) {
                         await page.reload();
                         await randomSleep(5000, 7000);
                         await openChapterAtQuestion(page, chapter.url, curr - 1); // 重新定位到当前题
-                        await triggerOfficialAnalysis(page);
-                        await page.waitForTimeout(2000);
+                        await triggerOfficialAnalysis(page, lastContentFp);
                         data = await readQuestionData(page);
                     }
                 }
@@ -693,8 +691,7 @@ async function crawlSubject(page, subject) {
                             await page.reload();
                             await randomSleep(5000, 7000);
                             await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到下一题
-                            await triggerOfficialAnalysis(page);
-                            await page.waitForTimeout(2000);
+                            await triggerOfficialAnalysis(page, lastContentFp);
                         }
                     } else { break; }
                 } else {
