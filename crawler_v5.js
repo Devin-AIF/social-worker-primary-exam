@@ -214,7 +214,7 @@ async function readQuestionData(page) {
             return t.startsWith('正确答案：') || t.startsWith('正确答案:');
         });
         if (dedicatedAnsBox) {
-            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').replace(/^\s*为\s*/, '').trim();
+            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').replace(/^\s*为\s*/, '').replace(/[\s,，、]/g, '').trim();
         }
 
         // 1. 提取解析全文 (根据裸跑结果，锁定最精准的路径)
@@ -275,17 +275,23 @@ async function readQuestionData(page) {
                 // 如果答案在解析块里
                 const m = anaPart.match(ansRegex);
                 const afterAns = anaPart.substring(anaPart.indexOf(m[0]) + m[0].length).trim();
-                finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^\s*为\s*/, '').trim();
+                // 优化：优先匹配开头的连续大写字母（支持多选 ADE）
+                const multiMatch = afterAns.match(/^\s*([A-G\s,，、]+)/i);
+                if (multiMatch) {
+                    finalAnswer = multiMatch[1].replace(/[\s,，、]/g, '').trim();
+                } else {
+                    finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^\s*为\s*/, '').trim();
+                }
             }
 
-            // 如果是选择题且没抓到有效答案，尝试暴力搜寻单个大写字母
+            // 如果是选择题且没抓到有效答案，尝试暴力搜寻连续的大写字母
             if (!finalAnswer || finalAnswer.length > 10 || finalAnswer === '参考' || finalAnswer === '为') {
-                const letterMatch = cleanFullText.match(/(?:答案|参考答案|正确答案)[：:\s]*为?\s*([A-G]+)/i);
+                const letterMatch = cleanFullText.match(/(?:答案|参考答案|正确答案)[：:\s]*为?\s*([A-G\s,，、]+)/i);
                 if (letterMatch) {
-                    finalAnswer = letterMatch[1];
+                    finalAnswer = letterMatch[1].replace(/[\s,，、]/g, '').trim();
                 } else if (!itemType.includes('问答')) {
-                    // 最后的倔强：搜寻第一个出现的孤立大写字母
-                    const soloLetter = cleanFullText.match(/\b([A-G])\b/);
+                    // 最后的倔强：搜寻第一个出现的孤立大写字母序列
+                    const soloLetter = cleanFullText.match(/\b([A-G]{1,7})\b/);
                     if (soloLetter) finalAnswer = soloLetter[1];
                 }
             }
