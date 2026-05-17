@@ -680,7 +680,8 @@ async function crawlSubject(page, subject) {
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
 
                 if (curr < totalNum) {
-                    const next = await page.$('.subject-next, #next_item');
+                    // 增强：等待“下一题”按钮出现
+                    const next = await page.waitForSelector('.subject-next, #next_item, .next-btn', { timeout: 5000 }).catch(() => null);
                     if (next) {
                         const old = { step: data.step, id: data.itemId, title: data.title };
                         await next.click({ force: true });
@@ -693,7 +694,10 @@ async function crawlSubject(page, subject) {
                             await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到下一题
                             await triggerOfficialAnalysis(page, lastContentFp);
                         }
-                    } else { break; }
+                    } else { 
+                        log(`未找到“下一题”按钮，章节异常终止: ${chapter.title} @ ${data.step}`, 'WARN');
+                        break; 
+                    }
                 } else {
                     completionStatus[statusKey].isFinished = true;
                     completionStatus[statusKey].updatedAt = new Date().toLocaleString();
