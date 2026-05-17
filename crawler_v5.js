@@ -208,6 +208,15 @@ async function readQuestionData(page) {
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
 
+        // 0. 优先检测专用答案区域 (适配 2026/2024 最新 UI)
+        const dedicatedAnsBox = Array.from(document.querySelectorAll('div, span, p, b, strong, .answer-yes, .right-answer')).find(el => {
+            const t = el.innerText.trim();
+            return t.startsWith('正确答案：') || t.startsWith('正确答案:');
+        });
+        if (dedicatedAnsBox) {
+            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').trim();
+        }
+
         // 1. 提取解析全文 (根据裸跑结果，锁定最精准的路径)
         const anaSelectors = [
             '.answer-qa .analysis > div:first-child', // 2023真题核心：参考答案和要点都在第一个div
