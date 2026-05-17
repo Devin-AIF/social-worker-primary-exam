@@ -250,8 +250,11 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     await page.goto(finalUrl).catch(() => {});
     await randomSleep(4000, 6000);
     
+    // 页面跳转后截图
+    await page.screenshot({ path: path.join(DEBUG_DIR, `jump_${Date.now()}.png`) });
+    
     // 1. 尝试开始
-    const startBtns = ['a:has-text("开始做题")', 'a:has-text("练习模式")', 'a.enable.a2'];
+    const startBtns = ['a:has-text("开始做题")', 'a:has-text("练习模式")', 'a:has-text("做题")', 'a.enable.a2'];
     for (const s of startBtns) { if (await safeClick(page, s, 3000)) break; }
 
     // 2. 切换背题模式
