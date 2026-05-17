@@ -633,9 +633,15 @@ async function crawlSubject(page, subject) {
                 await triggerOfficialAnalysis(page, lastContentFp);
 
                 let data = await readQuestionData(page);
-                let [curr, totalNum] = (data.step || '1/1').split('/').map(Number);
-                if (isNaN(curr)) curr = 1;
-                if (isNaN(totalNum)) totalNum = 1;
+                let [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
+                
+                // 防御性重试：如果抓到的是 0/0 或无效值
+                if (isNaN(totalNum) || totalNum === 0 || isNaN(curr) || curr === 0) {
+                    log(`题号读取异常 (${data.step})，等待并重试...`, 'WARN');
+                    await page.waitForTimeout(4000);
+                    data = await readQuestionData(page);
+                    [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
+                }
 
                 // 刷新检测
                 if (data.contentFingerprint === lastContentFp && data.contentFingerprint.length > 10) {
@@ -659,51 +665,48 @@ async function crawlSubject(page, subject) {
                 }
 
                 // 写入数据
-                let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
+                let md = `## 第 ${curr || '?'} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
                 if (data.options) md += `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n`;
                 md += `> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
                 
                 fs.appendFileSync(outputFile, md);
-                log(`    [数据保存] 题号: ${data.step} | 答案: ${data.answer.substring(0, 20)}`, 'INFO');
+                log(`    [数据保存] 题号: ${data.step} | 答案: ${data.answer.substring(0, 15)}`, 'INFO');
 
                 lastContentFp = data.contentFingerprint;
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
                 
                 completionStatus[statusKey] = { 
-                    id: chapter.id,
-                    title: chapter.title,
-                    completed: curr, 
-                    total: totalNum,
+                    id: chapter.id, title: chapter.title,
+                    completed: curr || 0, total: totalNum || 0,
                     updatedAt: new Date().toLocaleString()
                 };
                 saveStatus();
                 process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
 
-                if (curr < totalNum) {
-                    const next = await page.waitForSelector('.subject-next, #next_item, .next-btn', { timeout: 5000 }).catch(() => null);
-                    if (next) {
-                        const old = { step: data.step, id: data.itemId, title: data.title };
-                        await next.click({ force: true });
-                        const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp, old.title);
-                        
-                        if (!changed) {
-                            log(`翻页似乎卡死，尝试强制刷新页面 (题号: ${data.step})...`, 'WARN');
-                            await page.reload();
-                            await randomSleep(5000, 7000);
-                            await openChapterAtQuestion(page, chapter.url, curr); 
-                            await triggerOfficialAnalysis(page, lastContentFp);
-                        }
-                    } else { 
-                        log(`未找到“下一题”按钮，章节异常终止: ${chapter.title} @ ${data.step}`, 'WARN');
-                        break; 
+                const next = await page.waitForSelector('.subject-next, #next_item, .next-btn', { timeout: 3000 }).catch(() => null);
+                if (next && (curr < totalNum || totalNum === 0)) {
+                    const old = { step: data.step, id: data.itemId, title: data.title };
+                    await next.click({ force: true });
+                    const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp, old.title);
+                    
+                    if (!changed) {
+                        log(`翻页卡死，尝试强制刷新页面 (题号: ${data.step})...`, 'WARN');
+                        await page.reload();
+                        await randomSleep(5000, 7000);
+                        await openChapterAtQuestion(page, chapter.url, curr); 
+                        await triggerOfficialAnalysis(page, lastContentFp);
                     }
                 } else {
-                    log(`\n    [完成] ${chapter.title} (已抓取至最后一题)`, 'INFO');
-                    completionStatus[statusKey].isFinished = true;
-                    completionStatus[statusKey].updatedAt = new Date().toLocaleString();
-                    saveStatus();
+                    // 只有当 curr 明确等于 totalNum 时才标记完成
+                    if (curr > 0 && curr === totalNum) {
+                        log(`\n    [完成] ${chapter.title}`, 'INFO');
+                        completionStatus[statusKey].isFinished = true;
+                        saveStatus();
+                    } else {
+                        log(`\n    [终止] ${chapter.title} @ ${data.step} (未找到下一题且未达终点)`, 'WARN');
+                    }
                     break;
                 }
             }
