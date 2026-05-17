@@ -1,6 +1,6 @@
 /**
  * =================================================================================
- * 自动化抓取脚本 V5.0 (全自动登录 + 深度清洗 + 图片本地化 + 稳健导航)
+ * 自动化抓取脚本 V5.1 (稳定增强版)
  * =================================================================================
  */
 
@@ -28,6 +28,7 @@ const OUTPUT_DIR = path.join(PROJECT_ROOT, '抓取结果_V5');
 const LOG_FILE = path.join(PROJECT_ROOT, 'crawler.log'); 
 const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json'); 
 const DEBUG_DIR = path.join(PROJECT_ROOT, 'debug_screenshots'); 
+
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
 
@@ -65,8 +66,6 @@ function buildStableChapterKey(chapter) {
     return `url-${encoded.replace(/[+/=]/g, '').slice(0, 24)}`;
 }
 
-// --- 核心引擎 ---
-
 async function handlePopup(page) {
     await page.evaluate(() => {
         const shades = ['.layui-layer-shade', '#video_analysis_ratelimit_overlay', '.layerSaveSuccess', '#popup_box_bg', '.mask', '.loading-mask', '.analysis-lock', '.layerFeedback', '.layui-layer'];
@@ -89,47 +88,61 @@ async function installDomGuard(page) {
 }
 
 async function safeClick(page, selector, waitAfter = 0) {
-    const element = await page.$(selector);
-    if (!element) return false;
-    await handlePopup(page);
     try {
-        await element.click({ force: true, timeout: 5000 });
+        const element = await page.waitForSelector(selector, { state: 'visible', timeout: 5000 }).catch(() => null);
+        if (!element) return false;
+        await handlePopup(page);
+        await element.scrollIntoViewIfNeeded();
+        await element.click({ force: true });
+        if (waitAfter > 0) await page.waitForTimeout(waitAfter + Math.random() * 500);
+        return true;
     } catch (e) {
-        await element.evaluate(el => el.click()).catch(() => {});
+        return false;
     }
-    if (waitAfter > 0) await page.waitForTimeout(waitAfter + Math.random() * 500);
-    return true;
 }
 
 /**
- * 触发官方解析 (增强版：带指纹校验)
+ * 触发官方解析 (成熟逻辑：通过点击按钮触发)
  */
 async function triggerOfficialAnalysis(page, lastAnalysisText = '') {
     await page.evaluate(() => {
-        // 1. 清理容器但不隐藏
-        const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.answer-content', '.jiexi-content'];
-        anaSelectors.forEach(s => document.querySelectorAll(s).forEach(el => {
-            if (!el.innerText.trim().includes('正在加载')) el.innerHTML = '';
-        }));
-
-        // 2. 点击触发按钮
-        const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.view-answer'];
+        const clickSelectors = [
+            '.click_analysis', '[data-type="analysis"]', '.analysis-btn', 
+            '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', 
+            '.view-answer', '.subject-analysis-btn', 'a:contains("解析")'
+        ];
+        
+        const buttons = [];
         clickSelectors.forEach(s => {
-            document.querySelectorAll(s).forEach(btn => {
-                const text = (btn.innerText || '').trim();
-                if (btn.offsetParent !== null && /解析|答案|显示|查看/.test(text)) btn.click();
-            });
+            if (s.includes(':contains')) {
+                const text = s.match(/"(.+)"/)[1];
+                Array.from(document.querySelectorAll('a, button, span')).forEach(el => {
+                    if (el.innerText.includes(text)) buttons.push(el);
+                });
+            } else {
+                document.querySelectorAll(s).forEach(btn => buttons.push(btn));
+            }
+        });
+
+        buttons.forEach(btn => {
+            if (btn.offsetParent !== null) { // 仅点击可见按钮
+                btn.click();
+                // 兼容某些需要点击父级的情况
+                if (btn.tagName === 'I') btn.parentElement?.click();
+            }
         });
     });
 
-    // 3. 等待内容刷新且指纹不同
-    for (let i = 0; i < 8; i++) {
-        const currentFp = await page.evaluate(() => {
-            const el = document.querySelector('.analysis, #answer_analysis, #analysis, .answer-content');
-            return el ? el.innerText.trim().substring(0, 100).replace(/\s/g, '') : '';
-        });
-        if (currentFp && currentFp.length > 5 && currentFp !== lastAnalysisText) return true;
-        await page.waitForTimeout(800);
+    // 等待内容加载
+    for (let i = 0; i < 5; i++) {
+        const hasContent = await page.evaluate((lastTxt) => {
+            const el = document.querySelector('.analysis, #answer_analysis, #analysis, .answer-content, .jiexi-content');
+            if (!el) return false;
+            const txt = el.innerText.trim();
+            return txt.length > 10 && txt !== lastTxt && !txt.includes('正在加载');
+        }, lastAnalysisText);
+        if (hasContent) return true;
+        await page.waitForTimeout(1000);
     }
     return false;
 }
@@ -137,22 +150,23 @@ async function triggerOfficialAnalysis(page, lastAnalysisText = '') {
 async function readQuestionData(page) {
     return await page.evaluate(() => {
         const getStepText = () => {
-            // A. 答题卡推算 (最稳健)
+            // 1. 优先从 X/Y 文本中提取
+            const bodyText = document.body.innerText;
+            const m = bodyText.match(/(\d+)\s*\/\s*(\d+)/);
+            if (m && m[1] !== '0') return m[0].replace(/\s/g, '');
+
+            // 2. 答题卡推算
             const curLi = document.querySelector('#tiku_sheet_card li.cur, .answer-card li.cur, .dtk_list li.cur');
             const allLis = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
             if (curLi && allLis.length > 0) {
                 const idx = Array.from(allLis).indexOf(curLi) + 1;
                 return `${idx}/${allLis.length}`;
             }
-            // B. 选择器
+
+            // 3. 特定选择器
             const specific = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos');
-            if (specific) {
-                const m = specific.innerText.match(/(\d+)\s*\/\s*(\d+)/);
-                if (m && m[1] !== '0') return m[0].replace(/\s/g, '');
-            }
-            // C. 正则搜寻
-            const bodyMatch = document.body.innerText.match(/(\d+)\s*\/\s*(\d+)/);
-            if (bodyMatch && bodyMatch[1] !== '0') return bodyMatch[0].replace(/\s/g, '');
+            if (specific) return specific.innerText.trim();
+
             return '0/0';
         };
 
@@ -180,7 +194,7 @@ async function readQuestionData(page) {
             return text.trim();
         };
 
-        const titleEl = document.querySelector('#item_title, .item-title, .subject-title');
+        const titleEl = document.querySelector('#item_title, .item-title, .subject-title, .question-title, [class*="title"]');
         const titleText = processContent(titleEl, 'tit');
         const itemType = document.querySelector('#item_type, .item-type')?.innerText.trim() || '题型';
 
@@ -229,47 +243,51 @@ async function readQuestionData(page) {
     });
 }
 
-// --- 导航与进度控制 ---
-
+/**
+ * 简化版等待就绪：仅检查标题和 X/Y 步进器
+ */
 async function waitForQuestionReady(page) {
+    const timestamp = Date.now();
+    await page.screenshot({ path: path.join(DEBUG_DIR, `wait_start_${timestamp}.png`) });
+    
     const ready = await page.waitForFunction(() => {
-        const title = document.querySelector('#item_title, .item-title, .subject-title, .question-title, .subject-attr');
-        const hasStep = Array.from(document.querySelectorAll('div, span, p, b, li'))
-            .some(el => /(\d+)\s*\/\s*(\d+)/.test(el.innerText) && !el.innerText.trim().startsWith('0/'));
+        const title = document.querySelector('#item_title, .item-title, .subject-title, .question-title, [class*="title"]');
+        const hasStep = /(\d+)\s*\/\s*(\d+)/.test(document.body.innerText);
         const hasCard = !!document.querySelector('#tiku_sheet_card li, .answer-card li');
-        return title && title.innerText.trim().length > 5 && (hasStep || hasCard);
-    }, { timeout: 30000 }).catch(() => false);
+        return title && title.innerText.trim().length > 2 && (hasStep || hasCard);
+    }, { timeout: 15000 }).catch(() => false);
+
     if (ready) {
         await installDomGuard(page);
         await handlePopup(page);
+        await page.screenshot({ path: path.join(DEBUG_DIR, `wait_success_${timestamp}.png`) });
+    } else {
+        await page.screenshot({ path: path.join(DEBUG_DIR, `wait_timeout_${timestamp}.png`) });
     }
     return ready;
 }
 
 async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     const finalUrl = (questionIndex === 0 && !chapterUrl.includes('again=1')) ? (chapterUrl.includes('?') ? `${chapterUrl}&again=1` : `${chapterUrl}?again=1`) : chapterUrl;
-    await page.goto(finalUrl).catch(() => {});
-    await randomSleep(4000, 6000);
+    log(`打开章节: ${finalUrl}`, 'DEBUG');
+    await page.goto(finalUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await randomSleep(3000, 5000);
     
-    // 1. 尝试开始
-    const startBtns = ['a:has-text("开始做题")', 'a:has-text("练习模式")', 'a:has-text("做题")', 'a.enable.a2'];
-    for (const s of startBtns) { if (await safeClick(page, s, 3000)) break; }
+    // 1. 点击开始/继续按钮
+    const startBtns = ['a:has-text("开始做题")', 'a:has-text("练习模式")', 'a:has-text("继续做题")', 'a.enable.a2'];
+    for (const s of startBtns) { if (await safeClick(page, s, 2000)) break; }
 
-    // 2. 强力切换背题模式
+    // 2. 切换背题模式
     await page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll('a, button, span, .bd_bt, i'))
             .find(el => {
-                const t = (el.innerText || el.parentElement?.innerText || '').trim();
+                const t = (el.innerText || '').trim();
                 return t.includes('背题') || t.includes('显示答案');
             });
-        if (btn) {
-            btn.click();
-            if (btn.tagName === 'I') btn.parentElement?.click();
-        } else if (typeof switchMode === 'function') {
-            switchMode('recite');
-        }
+        if (btn) btn.click();
+        else if (typeof switchMode === 'function') switchMode('recite');
     }).catch(() => {});
-    await randomSleep(3000, 5000);
+    await randomSleep(2000, 3000);
 
     // 3. 题目跳转
     if (questionIndex > 0) {
@@ -281,14 +299,18 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
                 cards[idx].click();
             }
         }, questionIndex).catch(() => {});
-        await randomSleep(3000, 5000);
+        await randomSleep(2000, 3000);
     }
     
     if (!await waitForQuestionReady(page)) {
-        // 兜底：再点一次做题按钮
+        await page.screenshot({ path: path.join(DEBUG_DIR, `retry_ready_${Date.now()}.png`) });
         const retryBtns = ['a:has-text("开始做题")', 'a:has-text("做题")'];
         for (const s of retryBtns) { if (await safeClick(page, s, 3000)) break; }
-        if (!await waitForQuestionReady(page)) throw new Error(`章节内容加载超时: ${chapterUrl}`);
+        if (!await waitForQuestionReady(page)) {
+             log(`章节加载失败，尝试最后一次重载`, 'WARN');
+             await page.reload();
+             await page.waitForTimeout(5000);
+        }
     }
 }
 
@@ -335,17 +357,16 @@ async function crawlSubject(page, subject) {
     await page.waitForSelector(`input[name="change_id"][value="${subject.productId}"]`, { timeout: 8000 });
     await page.click(`label:has(input[name="change_id"][value="${subject.productId}"])`, { force: true });
     await safeClick(page, 'button:has-text("确认"), a:has-text("确认切换")');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(5000);
     
-    // 切换后截图
-    await page.screenshot({ path: path.join(DEBUG_DIR, `after_switch_${subject.productId}.png`) });
+    // 重要：等待切换完成并充分加载内容
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(6000);
+    await page.screenshot({ path: path.join(DEBUG_DIR, `subject_loaded_${subject.productId}.png`) });
 
     const categories = await page.evaluate(() => {
         return Array.from(document.querySelectorAll('.list-count li')).map(li => {
             const a = li.querySelector('a');
-            const name = li.querySelector('b')?.innerText.trim();
-            // 修正：支持更多分类名称
+            const name = li.querySelector('b')?.innerText.trim() || a?.innerText.trim();
             if (a && name && ['历年真题', '模拟试卷', '章节练习', '考前冲刺', '预测试卷'].some(k => name.includes(k))) {
                 return { name, url: a.href };
             }
@@ -354,8 +375,7 @@ async function crawlSubject(page, subject) {
     });
 
     if (categories.length === 0) {
-        log(`警告: 未在科目 [${subject.name}] 中发现有效分类，尝试重新抓取分类...`, 'WARN');
-        // 尝试另一种选择器
+        log(`警告: 未发现分类，尝试备用选择器`, 'WARN');
         const altCats = await page.evaluate(() => {
             return Array.from(document.querySelectorAll('a'))
                 .filter(a => ['历年真题', '模拟试卷', '章节练习'].some(k => a.innerText.includes(k)))
@@ -372,10 +392,10 @@ async function crawlSubject(page, subject) {
         if (!fs.existsSync(typeDir)) fs.mkdirSync(typeDir, { recursive: true });
 
         await page.goto(cat.url).catch(() => {});
-        await randomSleep(4000, 6000);
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(4000);
         
-        // 分类页截图
-        await page.screenshot({ path: path.join(DEBUG_DIR, `cat_${subject.productId}_${cat.name}.png`) });
+        await page.screenshot({ path: path.join(DEBUG_DIR, `cat_loaded_${subject.productId}_${cat.name}.png`) });
 
         const chapters = await page.evaluate(() => {
             const list = Array.from(document.querySelectorAll('a, .item, .big, tr'))
@@ -409,7 +429,10 @@ async function crawlSubject(page, subject) {
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${buildStableChapterKey(chapter)}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
-            if (completionStatus[statusKey]?.isFinished) continue;
+            if (completionStatus[statusKey]?.isFinished) {
+                log(`    跳过已完成章节: ${chapter.title}`, 'INFO');
+                continue;
+            }
 
             let startFrom = getCompletedCount(outputFile);
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
@@ -417,7 +440,16 @@ async function crawlSubject(page, subject) {
             if (!fs.existsSync(outputFile)) fs.writeFileSync(outputFile, `# ${chapter.title}\n\n`);
 
             log(`    开始章节: ${chapter.title} (进度: ${startFrom})`, 'INFO');
-            await openChapterAtQuestion(page, chapter.url, startFrom);
+            
+            let reloadCount = 0;
+            const maxReloads = 3;
+
+            try {
+                await openChapterAtQuestion(page, chapter.url, startFrom);
+            } catch (e) {
+                log(`无法打开章节: ${e.message}`, 'ERROR');
+                continue;
+            }
 
             let lastContentFp = '';
             let lastAnalysisText = '';
@@ -426,10 +458,17 @@ async function crawlSubject(page, subject) {
             
             while (true) {
                 if (!await waitForQuestionReady(page)) {
+                    reloadCount++;
+                    if (reloadCount > maxReloads) {
+                        log('多次尝试加载失败，跳过该章节', 'ERROR');
+                        break;
+                    }
                     log('页面响应超时，尝试刷新...', 'WARN');
                     await page.reload();
                     await openChapterAtQuestion(page, chapter.url, internalCurr);
+                    continue;
                 }
+                reloadCount = 0; // 成功一次后重置
 
                 await triggerOfficialAnalysis(page, lastAnalysisText);
                 let data = await readQuestionData(page);
@@ -439,7 +478,7 @@ async function crawlSubject(page, subject) {
                 let totalNum = isNaN(parsedTotal) ? 0 : parsedTotal;
                 internalCurr = curr;
 
-                // 黄金刷新逻辑：如果内容未刷新或数据异常
+                // 刷新逻辑：如果内容未刷新或数据异常
                 const isContentStuck = (data.contentFingerprint === lastContentFp && lastContentFp !== '');
                 const isDataInvalid = !data.title || data.title.length < 2;
 
@@ -448,8 +487,8 @@ async function crawlSubject(page, subject) {
                     if (stuckCount >= 3) {
                         log('内容持续未刷新或异常，执行强制重载...', 'WARN');
                         await page.reload();
-                        await randomSleep(5000, 7000);
-                        await openChapterAtQuestion(page, chapter.url, curr > 1 ? curr - 2 : startFrom);
+                        await randomSleep(4000, 6000);
+                        await openChapterAtQuestion(page, chapter.url, curr > 1 ? curr - 1 : startFrom);
                         stuckCount = 0;
                         continue;
                     }
@@ -479,9 +518,10 @@ async function crawlSubject(page, subject) {
                 const shouldClickNext = totalNum === 0 || curr < totalNum;
                 
                 if (shouldClickNext) {
-                    const nextSelectors = ['.subject-next', '#next_item', '.next-btn', 'a:has-text("下一题")'];
+                    const nextSelectors = ['.subject-next', '#next_item', '.next-btn', 'a:has-text("下一题")', '.next_btn'];
                     let nextClicked = false;
                     for (const s of nextSelectors) {
+                        // 确保“下一题”按钮可见且可点击
                         if (await safeClick(page, s, 1500)) {
                             nextClicked = true;
                             break;
@@ -505,7 +545,7 @@ async function crawlSubject(page, subject) {
 }
 
 async function run() {
-    log('正在启动增强版抓取器 V5.0...', 'INFO');
+    log('正在启动稳定增强版抓取器 V5.1...', 'INFO');
     const browser = await chromium.launch({ 
         headless: process.env.HEADLESS === 'true'
     });
@@ -520,7 +560,6 @@ async function run() {
         await page.click('.login-form-btn');
         await page.waitForTimeout(6000);
         
-        // 登录后截图
         await page.screenshot({ path: path.join(DEBUG_DIR, 'after_login.png') });
 
         if (fs.existsSync(STATUS_FILE)) {
