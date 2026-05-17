@@ -106,10 +106,11 @@ async function safeClick(page, selector, waitAfter = 0) {
  */
 async function triggerOfficialAnalysis(page) {
     await page.evaluate(() => {
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content', '.analysis-box', '.answer-analysis'];
+        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis', '.analysis', '.answer-content', '.analysis-box', '.answer-analysis', '.jiexi-content'];
         let hasVisibleAnalysis = false;
         for (const s of anaSelectors) {
             const el = document.querySelector(s);
+            // 只要有字且长度够，就认为解析已出
             if (el && el.innerText.trim().length > 15) {
                 hasVisibleAnalysis = true;
                 break;
@@ -117,19 +118,34 @@ async function triggerOfficialAnalysis(page) {
         }
         if (hasVisibleAnalysis) return;
 
-        const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.view-answer'];
+        // 1. 尝试暴力显示所有隐藏的解析容器
+        document.querySelectorAll('#analysis, .analysis, .answer-yes, .click_analysis, .analysis-box').forEach(el => {
+            el.style.display = 'block';
+            el.classList.remove('hide');
+        });
+
+        // 2. 尝试点击所有可能的“显示”按钮
+        const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.view-answer', '.subject-submit'];
         clickSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(btn => {
                 const text = (btn.innerText || '').trim();
                 if (text.includes('收起')) return;
-                // 针对问答题，增加“查看答案”、“显示答案”等判断
-                if (btn.offsetParent !== null || /解析|答案|显示|查看/.test(text)) {
+                // 对于“提交”按钮，仅当是问答题且没解析时尝试点击
+                if (text.includes('提交') && !document.querySelector('#item_type')?.innerText.includes('问答')) return;
+
+                if (btn.offsetParent !== null || /解析|答案|显示|查看|提交/.test(text) || btn.classList.contains('click_analysis')) {
                     btn.click();
                 }
             });
         });
+
+        // 3. 特殊处理：有些问答题需要点一下答题框或提交
+        if (document.querySelector('#item_type')?.innerText.includes('问答')) {
+            const submitBtn = document.querySelector('.subject-submit');
+            if (submitBtn) submitBtn.click();
+        }
     });
-    await page.waitForTimeout(2000); // 增加等待时间，确保解析加载
+    await page.waitForTimeout(2500); 
 }
 
 async function readQuestionData(page) {
@@ -178,27 +194,27 @@ async function readQuestionData(page) {
         let finalAnalysis = '无解析';
 
         // 1. 提取答案
-        const ansSelectors = ['.right', '.answer-yes .right', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer', '.answer-text'];
+        const ansSelectors = ['.answer-qa', '.right', '.answer-yes .right', '#answer_right', '.correct-answer', '.subject-answer', '.right_answer', '.answer-text', '.analysis-box', '.analysis'];
         for (const s of ansSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
-                if (isVisible(el) || el.innerText.length > 0) {
-                    let t = el.innerText.replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').trim();
-                    if (t && t.length > 0) { finalAnswer = t; break; }
+                const t = el.innerText.replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').replace('答案及解析', '').trim();
+                if (t && t.length > 2) { 
+                    finalAnswer = t; 
+                    break; 
                 }
             }
             if (finalAnswer !== '未知') break;
         }
 
         // 2. 提取解析全文
-        const anaSelectors = ['.analysis.pd10', '#answer_analysis .analysis', '#analysis .analysis', '.jiexi-content', '.solution', '#analysis', '.analysis', '.analysis-box', '.answer-analysis'];
+        const anaSelectors = ['.answer-qa .analysis', '.analysis.pd10', '#answer_analysis .analysis', '#analysis .analysis', '.jiexi-content', '.solution', '#analysis', '.analysis', '.analysis-box', '.answer-analysis', '.pd10'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
-                // 即使不可见也尝试提取，防止是因为 CSS 隐藏导致的
                 const candidate = processContent(el, 'ans');
-                if (candidate && candidate.length > 5) {
+                if (candidate && candidate.length > 10) {
                     fullAnaText = candidate;
                     break;
                 }
@@ -206,17 +222,16 @@ async function readQuestionData(page) {
             if (fullAnaText) break;
         }
 
-        // 3. 拆分逻辑 (增加对问答题的支持)
+        // 3. 拆分逻辑
         if (fullAnaText) {
-            const anaMatch = fullAnaText.match(/(参考解析|题目解析|答案解析|解析|参考答案|答案)[：:\n]/);
-            if (anaMatch) {
-                const parts = fullAnaText.split(anaMatch[0]);
-                if (finalAnswer === '未知' && (fullAnaText.includes('答案') || fullAnaText.includes('参考'))) {
-                     finalAnswer = parts[0].replace(/^[\s\S]*?(参考答案|正确答案)[：:\n\s]*/, '').trim() || '见解析';
-                }
-                finalAnalysis = fullAnaText.trim();
-            } else {
-                finalAnalysis = fullAnaText;
+            finalAnalysis = fullAnaText;
+            if (finalAnswer === '未知') {
+                 const anaMatch = fullAnaText.match(/(参考答案|正确答案|答案)[：:\n]/);
+                 if (anaMatch) {
+                     finalAnswer = fullAnaText.split(anaMatch[0])[1]?.split('\n')[0].trim() || '见解析';
+                 } else {
+                     finalAnswer = '见解析';
+                 }
             }
         }
 
@@ -233,7 +248,6 @@ async function readQuestionData(page) {
     if (data.analysis === '无解析' && data.rawHtml) {
         const debugPath = path.join(DEBUG_DIR, `missing_analysis_${data.itemId}_${data.step.replace('/', '_')}.html`);
         fs.writeFileSync(debugPath, data.rawHtml);
-        log(`[DEBUG] 缺失解析，已保存页面快照: ${debugPath}`, 'DEBUG');
     }
     return data;
 }
