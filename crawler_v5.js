@@ -238,8 +238,8 @@ async function readQuestionData(page) {
 
         // 2. 字段分配逻辑 (适配 2023/2024 真实结构)
         if (fullAnaText) {
-            const ansKeywords = /(参考答案|正确答案|答案)[：:\n\s]*/;
-            const anaKeywords = /(题目解析|答案解析|解析|【解析】|答题要点)[：:\n\s]*/;
+            const ansKeywords = /(?:参考答案|正确答案|【答案】|答案)[：:\n\s]*/;
+            const anaKeywords = /(?:题目解析|答案解析|解析|【解析】|答题要点|要点)[：:\n\s]*/;
 
             if (itemType.includes('问答')) {
                 // 如果抓到的块里同时有答案和要点，进行切割
@@ -602,7 +602,7 @@ async function run() {
             throw new Error('缺少环境变量 XS507_USER 或 XS507_PASS，请先设置后再运行');
         }
 
-        browser = await chromium.launch({ headless: process.env.HEADLESS === 'true' });
+        browser = await chromium.launch({ headless: process.env.HEADLESS === 'true' ? true : false });
         page = await (await browser.newContext()).newPage();
 
         try {
