@@ -152,17 +152,28 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
     }
 }
 
+
 async function readQuestionData(page) {
     const data = await page.evaluate(() => {
         const getStepText = () => {
-            const els = Array.from(document.querySelectorAll('div, span, b, strong, p, li, .item_type_pos, #item_step, .item-step, .subject-step, .subject-type-box'));
-            const matches = els.map(el => {
-                const text = el.innerText.trim();
-                const m = text.match(/(\d+)\s*\/\s*(\d+)/);
+            // A. 答题卡推算 (最稳健)
+            const curLi = document.querySelector('#tiku_sheet_card li.cur, .answer-card li.cur, .dtk_list li.cur');
+            const allLis = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
+            if (curLi && allLis.length > 0) {
+                const idx = Array.from(allLis).indexOf(curLi) + 1;
+                return `${idx}/${allLis.length}`;
+            }
+            // B. 选择器查找
+            const specific = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos, .subject-type-box');
+            if (specific) {
+                const m = specific.innerText.match(/(\d+)\s*\/\s*(\d+)/);
                 if (m && m[1] !== '0') return m[0].replace(/\s/g, '');
-                return null;
-            }).filter(Boolean);
-            return matches[0] || '0/0';
+            }
+            // C. 全文搜寻
+            const bodyMatch = document.body.innerText.match(/(\d+)\s*\/\s*(\d+)/);
+            if (bodyMatch && bodyMatch[1] !== '0') return bodyMatch[0].replace(/\s/g, '');
+            
+            return '0/0';
         };
         const stepRaw = getStepText();
 
@@ -186,38 +197,21 @@ async function readQuestionData(page) {
                 img.replaceWith(` ![图](./images/${name}) `);
             });
 
-            // 使用 innerHTML 转换为带换行的文本，避免 innerText 在某些隐藏元素中获取为空的问题
             let html = clone.innerHTML;
-            html = html.replace(/<br\s*[\/]?>/gi, '\n');
-            html = html.replace(/<\/p>/gi, '\n');
-            html = html.replace(/<[^>]+>/g, ''); // 移除其他 HTML 标签
-
-            let text = html.trim();
+            html = html.replace(/<br\s*[\/]?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '');
+            let text = html.trim().replace(/&nbsp;/g, ' ');
             const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g, /查看视频/g, /听课/g, /展开解析/g, /答案及解析/g];
             junkPatterns.forEach(p => text = text.replace(p, ''));
-            
-            // 修复可能产生的多余空行
             return text.replace(/\n\s*\n/g, '\n').trim();
         };
 
-        const titleEl = document.querySelector('#item_title');
-        
-        const fetchOptions = () => {
-            const selectors = ['#item_options li', '.options li', '.question-options li', '.subject-option li', '.option-list li'];
-            for (const s of selectors) {
-                const items = document.querySelectorAll(s);
-                if (items.length > 0) return Array.from(items).map((li, idx) => processContent(li, `opt${idx}`)).join('\n');
-            }
-            return '';
-        };
-
+        const titleEl = document.querySelector('#item_title, .item-title');
         const titleText = processContent(titleEl, 'tit');
         const itemType = document.querySelector('#item_type')?.innerText.trim() || '题型';
 
         let finalAnswer = '未知';
         let finalAnalysis = '无解析';
 
-        // 0. 优先检测专用答案区域 (适配 2026/2024 最新 UI)
         const dedicatedAnsBox = Array.from(document.querySelectorAll('div, span, p, b, strong, .answer-yes, .right-answer')).find(el => {
             const t = el.innerText.trim();
             return t.startsWith('正确答案：') || t.startsWith('正确答案:');
@@ -226,101 +220,48 @@ async function readQuestionData(page) {
             finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').replace(/^\s*为\s*/, '').replace(/[\s,，、]/g, '').trim();
         }
 
-        // 1. 提取解析全文 (根据裸跑结果，锁定最精准的路径)
-        const anaSelectors = [
-            '.answer-qa .analysis > div:first-child', // 2023真题核心：参考答案和要点都在第一个div
-            '#answer_analysis .analysis > div:first-child',
-            '#analysis .analysis > div:first-child',
-            '#answer_analysis .analysis',
-            '#analysis .analysis',
-            '.answer-qa .analysis',
-            '.analysis',
-            '.answer-content',
-            '.analysis-box',
-            '.answer-analysis',
-            '.jiexi-content'
-        ];
-        
+        const anaSelectors = ['.answer-qa .analysis > div:first-child', '#answer_analysis .analysis > div:first-child', '#analysis .analysis > div:first-child', '#answer_analysis .analysis', '#analysis .analysis', '.answer-qa .analysis', '.analysis', '.answer-content', '.analysis-box', '.answer-analysis', '.jiexi-content'];
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const el = document.querySelector(s);
-            // 物理隔离检测：必须可见 (offsetParent !== null)，且长度足够，且不是题目内容
-            if (el && el.offsetParent !== null && isVisible(el)) {
+            if (el && el.innerText.trim().length > 10) {
                 const candidate = processContent(el, 'ans');
-                if (candidate && candidate.length > 10 && !titleText.includes(candidate.substring(0, 50))) {
+                if (candidate && !titleText.includes(candidate.substring(0, 30))) {
                     fullAnaText = candidate;
                     break;
                 }
             }
         }
 
-        // 2. 字段分配逻辑 (全方位容错版)
         if (fullAnaText) {
-            // 预处理：替换 &nbsp; 为标准空格，统一空白符
-            let cleanFullText = fullAnaText.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-
+            let cleanFullText = fullAnaText.replace(/\s+/g, ' ').trim();
             const ansRegex = /(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*为?/i;
             const anaRegex = /(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\s]*/i;
-
-            // 寻找关键词位置
             const anaMatch = cleanFullText.match(new RegExp(anaRegex.source, 'gi'));
             const anaIndex = anaMatch ? cleanFullText.indexOf(anaMatch[0]) : -1;
+            
+            let ansPart = (anaIndex !== -1) ? cleanFullText.substring(0, anaIndex).trim() : cleanFullText;
+            let anaPart = (anaIndex !== -1) ? cleanFullText.substring(anaIndex).trim() : '';
 
-            let ansPart = '';
-            let anaPart = '';
-
-            if (anaIndex !== -1) {
-                ansPart = cleanFullText.substring(0, anaIndex).trim();
-                anaPart = cleanFullText.substring(anaIndex).trim();
-            } else {
-                ansPart = cleanFullText;
-                anaPart = '';
-            }
-
-            // 提取答案
             if (ansPart.match(ansRegex)) {
                 finalAnswer = ansPart.replace(new RegExp('^.*?' + ansRegex.source, 'i'), '').replace(/^\s*为\s*/, '').trim();
             } else if (anaPart.match(ansRegex)) {
-                // 如果答案在解析块里
                 const m = anaPart.match(ansRegex);
                 const afterAns = anaPart.substring(anaPart.indexOf(m[0]) + m[0].length).trim();
-                // 优化：优先匹配开头的连续大写字母（支持多选 ADE）
                 const multiMatch = afterAns.match(/^\s*([A-G\s,，、]+)/i);
-                if (multiMatch) {
-                    finalAnswer = multiMatch[1].replace(/[\s,，、]/g, '').trim();
-                } else {
-                    finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^\s*为\s*/, '').trim();
-                }
+                if (multiMatch) finalAnswer = multiMatch[1].replace(/[\s,，、]/g, '').trim();
+                else finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^\s*为\s*/, '').trim();
             }
 
-            // 如果是选择题且没抓到有效答案，尝试暴力搜寻连续的大写字母
             if (!finalAnswer || finalAnswer.length > 10 || finalAnswer === '参考' || finalAnswer === '为') {
                 const letterMatch = cleanFullText.match(/(?:答案|参考答案|正确答案)[：:\s]*为?\s*([A-G\s,，、]+)/i);
-                if (letterMatch) {
-                    finalAnswer = letterMatch[1].replace(/[\s,，、]/g, '').trim();
-                } else if (!itemType.includes('问答')) {
-                    // 最后的倔强：搜寻第一个出现的孤立大写字母序列
-                    const soloLetter = cleanFullText.match(/\b([A-G]{1,7})\b/);
-                    if (soloLetter) finalAnswer = soloLetter[1];
-                }
+                if (letterMatch) finalAnswer = letterMatch[1].replace(/[\s,，、]/g, '').trim();
             }
-
-            // 提取解析
-            if (anaPart) {
-                finalAnalysis = anaPart.replace(new RegExp('^.*?' + anaRegex.source, 'i'), '').trim();
-            } else if (ansPart && !finalAnswer) {
-                // 可能是纯解析
-                finalAnalysis = ansPart;
-            }
-
-            // 最终清洗解析：循环去除叠词前缀
+            finalAnalysis = anaPart ? anaPart.replace(new RegExp('^.*?' + anaRegex.source, 'i'), '').trim() : (finalAnswer === '未知' ? cleanFullText : '无');
             const cleanup = /^(?:题目解析|答案解析|解析|【解析】|答题要点|要点|参考答案|正确答案|答案)[：:\s]*/i;
             for(let i=0; i<3; i++) finalAnalysis = finalAnalysis.replace(cleanup, '').trim();
-            if (!finalAnalysis || finalAnalysis === '无') finalAnalysis = (anaPart || cleanFullText).replace(cleanup, '').trim();
-            if (!finalAnalysis) finalAnalysis = '无';
         }
 
-        // 3. 容错校验：如果网页上直接写了 "暂无解析"，如实记录
         const noAnalysisEl = document.evaluate("//div[contains(text(), '暂无解析')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
         if (noAnalysisEl && finalAnalysis === '无解析') finalAnalysis = '暂无解析';
 
@@ -333,11 +274,6 @@ async function readQuestionData(page) {
             rawHtml: (finalAnalysis === '无解析') ? document.body.innerHTML : null
         };
     });
-    
-    if (data.analysis === '无解析' && data.rawHtml) {
-        const debugPath = path.join(DEBUG_DIR, `missing_analysis_${data.itemId}_${data.step.replace('/', '_')}.html`);
-        fs.writeFileSync(debugPath, data.rawHtml);
-    }
     return data;
 }
 
@@ -345,11 +281,20 @@ async function readQuestionData(page) {
 
 async function waitForQuestionReady(page) {
     const ready = await page.waitForFunction(() => {
-        const title = document.querySelector('#item_title, .item-title, .subject-title');
-        const hasSlashText = Array.from(document.querySelectorAll('div, span, b, strong, p, li'))
-            .some(el => /(\d+)\s*\/\s*(\d+)/.test(el.innerText) && !el.innerText.trim().startsWith('0/'));
-        return title && title.innerText.trim().length > 5 && hasSlashText;
-    }, { timeout: 25000 }).then(() => true).catch((e) => {
+        const content = document.querySelector('.answer-content, #item_title, .subject-title');
+        const loading = document.querySelector('#NoRecord, .loading');
+        const isLoading = loading && loading.style.display !== 'none' && loading.innerText.includes('加载');
+        
+        if (!content || content.innerText.trim().length < 5 || isLoading) return false;
+
+        const hasStepText = Array.from(document.querySelectorAll('div, span, p, b, li'))
+            .some(el => {
+                const m = el.innerText.match(/(\d+)\s*\/\s*(\d+)/);
+                return m && m[1] !== '0';
+            });
+        const hasCard = !!document.querySelector('#tiku_sheet_card li, .answer-card li');
+        return hasStepText || hasCard;
+    }, { timeout: 35000 }).then(() => true).catch((e) => {
         logError('waitForQuestionReady', e);
         return false;
     });
@@ -359,17 +304,9 @@ async function waitForQuestionReady(page) {
 }
 
 async function waitForQuestionChange(page, oldId, oldStep, oldContentFp, oldTitle) {
-    // 1. “核弹级”清理：清空所有可能残留数据的区域
     await page.evaluate(() => {
-        const selectors = [
-            '#item_title', '.item-title', '#item_options', '.options', 
-            '.analysis', '#answer_analysis', '#analysis', '.answer-yes', 
-            '.right-answer', '.jiexi-content', '.answer-content'
-        ];
-        selectors.forEach(s => {
-            document.querySelectorAll(s).forEach(el => { el.innerHTML = ''; if(el.value) el.value=''; });
-        });
-        // 隐藏这些区域，确保只有新触发的才会显示
+        const selectors = ['#item_title', '.item-title', '#item_options', '.options', '.analysis', '#answer_analysis', '#analysis', '.answer-yes', '.right-answer', '.jiexi-content', '.answer-content'];
+        selectors.forEach(s => document.querySelectorAll(s).forEach(el => { el.innerHTML = ''; if(el.value) el.value=''; }));
         document.querySelectorAll('.analysis, #analysis, #answer_analysis').forEach(el => el.style.display = 'none');
     }).catch(() => {});
 
@@ -377,77 +314,15 @@ async function waitForQuestionChange(page, oldId, oldStep, oldContentFp, oldTitl
         const curId = (document.querySelector('#item_id')?.innerText || '').replace(/编号：/g, '').trim();
         const curStep = (document.querySelector('#item_step, .item-step')?.innerText || '').trim();
         const curTitle = (document.querySelector('#item_title, .item-title')?.innerText || '').trim();
-        
         const idChanged = curId && curId !== oldId;
         const stepChanged = curStep && curStep !== oldStep;
         const titleReady = curTitle && curTitle.length > 5 && curTitle !== oldTitle;
-
         return (idChanged || stepChanged) && titleReady;
-    }, { oldId, oldStep, oldTitle }, { timeout: 15000 }).then(() => true).catch((e) => {
-        logError(`waitForQuestionChange`, e);
-        return false;
-    });
+    }, { oldId, oldStep, oldTitle }, { timeout: 15000 }).then(() => true).catch(() => false);
 
-    if (changed) await randomSleep(2500, 4000); // 预留充足时间给 AJAX
+    if (changed) await randomSleep(2500, 4000);
     return changed;
 }
-
-async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
-    const finalUrl = (questionIndex === 0 && !chapterUrl.includes('again=1')) ? (chapterUrl.includes('?') ? `${chapterUrl}&again=1` : `${chapterUrl}?again=1`) : chapterUrl;
-    await page.goto(finalUrl).catch(() => {});
-    await randomSleep(4000, 6000);
-    await installDomGuard(page);
-    
-    // 点击开始
-    const startSelectors = ['a.enable.a2', 'a:has-text("开始做题")', 'a:has-text("练习模式")'];
-    for (const s of startSelectors) { if (await safeClick(page, s, 3000)) break; }
-    
-    // 切换背题模式
-    log(`尝试切换背题模式...`, 'DEBUG');
-    const modeSwitched = await page.evaluate(() => {
-        const btnSelectors = [
-            '.recite-mode', '#recite_mode', '.beiti', '[data-mode="recite"]', 
-            '.subject-action a', '.analysis-action a', '.tool-bar a'
-        ];
-        
-        // 1. 按文字查找按钮
-        const btn = Array.from(document.querySelectorAll('a, button, span, div, li')).find(el => {
-            const t = (el.innerText || '').trim(); 
-            return (t === '背题模式' || t === '背题' || t === '显示答案' || t === '解析模式');
-        });
-        
-        if (btn) {
-            btn.click();
-            return `TextMatch: ${btn.innerText.trim()}`;
-        }
-
-        // 2. 按选择器查找
-        for (const s of btnSelectors) {
-            const el = document.querySelector(s);
-            if (el && (el.innerText || '').includes('背')) {
-                el.click();
-                return `SelectorMatch: ${s}`;
-            }
-        }
-
-        // 3. 暴力模拟切换 (xs507 常用逻辑)
-        if (typeof switchMode === 'function') {
-            switchMode('recite'); 
-            return 'FunctionCall: switchMode';
-        }
-
-        return 'NotFound';
-    });
-    log(`背题模式切换结果: ${modeSwitched}`, 'DEBUG');
-    
-    await randomSleep(5000, 7000);
-    const ready = await waitForQuestionReady(page);
-    if (!ready) throw new Error('章节打开后题目未就绪');
-
-    if (questionIndex > 0) {
-        log(`正在跳转到题号: ${questionIndex + 1}`, 'DEBUG');
-        await page.evaluate(() => { const cardBtn = document.querySelector('.bd_dtk, #tiku_sheet, .answer-card-btn'); if (cardBtn) cardBtn.click(); });
-        await page.waitForTimeout(1000);
         await page.evaluate((index) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
             if (cards[index]) cards[index].click();
