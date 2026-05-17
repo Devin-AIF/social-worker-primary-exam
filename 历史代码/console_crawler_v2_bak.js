@@ -243,7 +243,6 @@ async function startCrawling() {
     }).join('\n');
 
     zip.file(`${titleName}.md`, md);
-    zip.file(`data.json`, JSON.stringify(questions, null, 2));
     
     console.log('>>> 正在生成 ZIP 文件...');
     const content = await zip.generateAsync({type:"blob"});
