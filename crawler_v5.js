@@ -192,6 +192,16 @@ async function readQuestionData(page) {
         };
 
         const titleEl = document.querySelector('#item_title');
+        
+        const fetchOptions = () => {
+            const selectors = ['#item_options li', '.options li', '.question-options li', '.subject-option li', '.option-list li'];
+            for (const s of selectors) {
+                const items = document.querySelectorAll(s);
+                if (items.length > 0) return Array.from(items).map((li, idx) => processContent(li, `opt${idx}`)).join('\n');
+            }
+            return '';
+        };
+
         const titleText = processContent(titleEl, 'tit');
         const itemType = document.querySelector('#item_type')?.innerText.trim() || '题型';
 
@@ -572,7 +582,7 @@ async function run() {
             throw new Error('缺少环境变量 XS507_USER 或 XS507_PASS，请先设置后再运行');
         }
 
-        browser = await chromium.launch({ headless: false });
+        browser = await chromium.launch({ headless: process.env.HEADLESS === 'true' });
         page = await (await browser.newContext()).newPage();
 
         try {
