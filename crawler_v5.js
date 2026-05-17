@@ -324,6 +324,10 @@ async function crawlSubject(page, subject) {
     await page.click(`label:has(input[name="change_id"][value="${subject.productId}"])`, { force: true });
     await safeClick(page, 'button:has-text("确认"), a:has-text("确认切换")');
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(5000);
+    
+    // 切换后截图
+    await page.screenshot({ path: path.join(DEBUG_DIR, `after_switch_${subject.productId}.png`) });
 
     const categories = await page.evaluate(() => {
         return Array.from(document.querySelectorAll('.list-count li')).map(li => {
