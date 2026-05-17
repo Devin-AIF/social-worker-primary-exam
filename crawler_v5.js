@@ -236,57 +236,63 @@ async function readQuestionData(page) {
             }
         }
 
-        // 2. 字段分配逻辑 (极强容错版)
+        // 2. 字段分配逻辑 (全方位容错版)
         if (fullAnaText) {
-            // 关键词正则，允许中间有空格
-            const ansRegex = /(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\n\s]*/;
-            const anaRegex = /(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\n\s]*/g;
+            // 预处理：替换 &nbsp; 为标准空格，统一空白符
+            let cleanFullText = fullAnaText.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
-            // 统一清洗：先把极其隐蔽的各种空格/换行符统一化
-            const cleanFullText = fullAnaText.replace(/\s+/g, ' ');
+            const ansRegex = /(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*/i;
+            const anaRegex = /(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\s]*/i;
 
-            // 寻找第一个解析关键字
-            const anaMatch = cleanFullText.match(anaRegex);
+            // 寻找关键词位置
+            const anaMatch = cleanFullText.match(new RegExp(anaRegex.source, 'gi'));
             const anaIndex = anaMatch ? cleanFullText.indexOf(anaMatch[0]) : -1;
 
+            let ansPart = '';
+            let anaPart = '';
+
             if (anaIndex !== -1) {
-                let ansPart = cleanFullText.substring(0, anaIndex).trim();
-                let anaPart = cleanFullText.substring(anaIndex).trim();
-
-                // 提取答案：使用 ^.*? 确保匹配并删除关键词及其之前的所有内容（如“参考”）
-                finalAnswer = ansPart.replace(/^.*?(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*/i, '').trim();
-                // 提取解析：同样逻辑，删除“解析”字样及其之前的内容
-                finalAnalysis = anaPart.replace(/^.*?(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\s]*/i, '').trim();
-
-                // 补偿逻辑：如果 ansPart 被切后变空，且解析部分开头有答案
-                if (!finalAnswer) {
-                    const nestedAnsMatch = anaPart.match(ansRegex);
-                    if (nestedAnsMatch) {
-                        const startIndex = anaPart.indexOf(nestedAnsMatch[0]) + nestedAnsMatch[0].length;
-                        const potentialAns = anaPart.substring(startIndex).trim();
-                        finalAnswer = potentialAns.split(/[\s解]/)[0].trim();
-                        // 修正解析内容，去掉已提取的答案部分
-                        if (finalAnswer && finalAnalysis.startsWith(finalAnswer)) {
-                            finalAnalysis = finalAnalysis.substring(finalAnswer.length).replace(/^[解\s：:]+/, '').trim();
-                        }
-                    }
-                }
+                ansPart = cleanFullText.substring(0, anaIndex).trim();
+                anaPart = cleanFullText.substring(anaIndex).trim();
             } else {
-                // 没找到解析关键字，全量匹配答案
-                finalAnswer = cleanFullText.replace(/^.*?(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*/i, '').trim();
-                if (finalAnswer === cleanFullText) {
-                    finalAnswer = '见解析';
-                    finalAnalysis = cleanFullText;
-                } else {
-                    finalAnalysis = '无';
+                ansPart = cleanFullText;
+                anaPart = '';
+            }
+
+            // 提取答案
+            if (ansPart.match(ansRegex)) {
+                finalAnswer = ansPart.replace(new RegExp('^.*?' + ansRegex.source, 'i'), '').trim();
+            } else if (anaPart.match(ansRegex)) {
+                // 如果答案在解析块里
+                const m = anaPart.match(ansRegex);
+                const afterAns = anaPart.substring(anaPart.indexOf(m[0]) + m[0].length).trim();
+                finalAnswer = afterAns.split(/[\s解]/)[0].trim();
+            }
+
+            // 如果是选择题且没抓到有效答案，尝试暴力搜寻单个大写字母
+            if (!finalAnswer || finalAnswer.length > 10 || finalAnswer === '参考') {
+                const letterMatch = cleanFullText.match(/(?:答案|参考答案|正确答案)[：:\s]*([A-G]+)/i);
+                if (letterMatch) {
+                    finalAnswer = letterMatch[1];
+                } else if (!itemType.includes('问答')) {
+                    // 最后的倔强：搜寻第一个出现的孤立大写字母
+                    const soloLetter = cleanFullText.match(/\b([A-G])\b/);
+                    if (soloLetter) finalAnswer = soloLetter[1];
                 }
             }
 
-            // 二次深度清洗解析前缀
-            const multiCleanup = /^(?:题目解析|答案解析|解析|【解析】|答题要点|要点|参考答案|正确答案|答案)[：:\s]*/i;
-            for(let i=0; i<3; i++) { // 循环三次防止叠词
-                finalAnalysis = finalAnalysis.replace(multiCleanup, '').trim();
+            // 提取解析
+            if (anaPart) {
+                finalAnalysis = anaPart.replace(new RegExp('^.*?' + anaRegex.source, 'i'), '').trim();
+            } else if (ansPart && !finalAnswer) {
+                // 可能是纯解析
+                finalAnalysis = ansPart;
             }
+
+            // 最终清洗解析：循环去除叠词前缀
+            const cleanup = /^(?:题目解析|答案解析|解析|【解析】|答题要点|要点|参考答案|正确答案|答案)[：:\s]*/i;
+            for(let i=0; i<3; i++) finalAnalysis = finalAnalysis.replace(cleanup, '').trim();
+            if (!finalAnalysis || finalAnalysis === '无') finalAnalysis = (anaPart || cleanFullText).replace(cleanup, '').trim();
             if (!finalAnalysis) finalAnalysis = '无';
         }
 
