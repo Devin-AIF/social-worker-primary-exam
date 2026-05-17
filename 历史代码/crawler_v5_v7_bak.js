@@ -564,7 +564,7 @@ async function crawlSubject(page, subject) {
         }
 
         for (const chapter of chapters) {
-            const statusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
+            const statusKey = `${subject.productId}_${cat.name}_${chapter.id}`;
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             

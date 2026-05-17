@@ -461,33 +461,8 @@ async function crawlSubject(page, subject) {
         for (const chapter of chapters) {
             const chapterKey = buildStableChapterKey(chapter);
             const statusKey = `${subject.productId}_${cat.name}_${chapterKey}`;
-            const legacyStatusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
-            let statusMigrated = false;
-            if (!completionStatus[statusKey] && completionStatus[legacyStatusKey]) {
-                completionStatus[statusKey] = {
-                    ...completionStatus[legacyStatusKey],
-                    migratedFrom: legacyStatusKey,
-                    migratedAt: new Date().toLocaleString()
-                };
-                delete completionStatus[legacyStatusKey];
-                statusMigrated = true;
-            }
-
-            const legacyChapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
+            
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapterKey}`);
-            if (legacyChapterDir !== chapterDir && fs.existsSync(legacyChapterDir) && !fs.existsSync(chapterDir)) {
-                try {
-                    fs.renameSync(legacyChapterDir, chapterDir);
-                    statusMigrated = true;
-                    log(`    [迁移] 章节目录已迁移: ${chapter.title}`, 'INFO');
-                } catch (e) {
-                    log(`    [迁移] 章节目录迁移失败: ${chapter.title} (${e?.message || e})`, 'WARN');
-                }
-            }
-            if (statusMigrated) {
-                saveStatus();
-                log(`    [迁移] 状态键已迁移: ${chapter.title}`, 'INFO');
-            }
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
             if (completionStatus[statusKey]?.isFinished) { 
@@ -626,7 +601,14 @@ async function run() {
             { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
         ];
 
-        for (const subject of ALL_SUBJECTS) { await crawlSubject(page, subject); }
+        for (const subject of ALL_SUBJECTS) { 
+            const finishKey = `SUBJECT_FINISHED_${subject.productId}`;
+            if (completionStatus[finishKey] && completionStatus[finishKey].isFinished) {
+                log(`科目 [${subject.name}] 已标记为整体完成，跳过。`, 'INFO');
+                continue;
+            }
+            await crawlSubject(page, subject); 
+        }
         MONITOR.printSummary();
     } finally {
         if (browser) await browser.close().catch((e) => log(`关闭浏览器失败: ${e?.message || e}`, 'WARN'));
