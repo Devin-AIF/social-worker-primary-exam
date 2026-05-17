@@ -750,8 +750,48 @@
     "updatedAt": "5/17/2026, 5:22:18 PM"
   },
   "1525_模拟试卷_paper_id-10481": {
-    "completed": 1,
+    "completed": 2,
     "total": 79,
-    "updatedAt": "5/17/2026, 5:22:30 PM"
+    "updatedAt": "5/17/2026, 5:22:49 PM"
+  },
+  "1526_章节练习_know_id-53784": {
+    "completed": 1,
+    "total": 49,
+    "updatedAt": "5/17/2026, 5:23:13 PM"
+  },
+  "1526_章节练习_know_id-53783": {
+    "completed": 1,
+    "total": 46,
+    "updatedAt": "5/17/2026, 5:23:27 PM"
+  },
+  "1526_章节练习_know_id-53782": {
+    "completed": 1,
+    "total": 46,
+    "updatedAt": "5/17/2026, 5:23:40 PM"
+  },
+  "1526_章节练习_know_id-53781": {
+    "completed": 1,
+    "total": 47,
+    "updatedAt": "5/17/2026, 5:23:55 PM"
+  },
+  "1526_章节练习_know_id-32082": {
+    "completed": 1,
+    "total": 135,
+    "updatedAt": "5/17/2026, 5:24:08 PM"
+  },
+  "1526_章节练习_know_id-32083": {
+    "completed": 1,
+    "total": 146,
+    "updatedAt": "5/17/2026, 5:24:21 PM"
+  },
+  "1526_章节练习_know_id-32084": {
+    "completed": 1,
+    "total": 133,
+    "updatedAt": "5/17/2026, 5:24:35 PM"
+  },
+  "1526_章节练习_know_id-32085": {
+    "completed": 1,
+    "total": 255,
+    "updatedAt": "5/17/2026, 5:24:48 PM"
   }
 }
