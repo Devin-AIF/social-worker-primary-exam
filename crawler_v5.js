@@ -329,9 +329,26 @@ async function crawlSubject(page, subject) {
         return Array.from(document.querySelectorAll('.list-count li')).map(li => {
             const a = li.querySelector('a');
             const name = li.querySelector('b')?.innerText.trim();
-            return (a && name && ['历年真题', '模拟试卷', '章节练习'].includes(name)) ? { name, url: a.href } : null;
+            // 修正：支持更多分类名称
+            if (a && name && ['历年真题', '模拟试卷', '章节练习', '考前冲刺', '预测试卷'].some(k => name.includes(k))) {
+                return { name, url: a.href };
+            }
+            return null;
         }).filter(Boolean);
     });
+
+    if (categories.length === 0) {
+        log(`警告: 未在科目 [${subject.name}] 中发现有效分类，尝试重新抓取分类...`, 'WARN');
+        // 尝试另一种选择器
+        const altCats = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('a'))
+                .filter(a => ['历年真题', '模拟试卷', '章节练习'].some(k => a.innerText.includes(k)))
+                .map(a => ({ name: a.innerText.trim(), url: a.href }));
+        });
+        categories.push(...altCats);
+    }
+
+    log(`在该科目下发现 ${categories.length} 个分类`, 'INFO');
 
     for (const cat of categories) {
         log(`进入分类: ${cat.name}`, 'INFO');
@@ -433,7 +450,9 @@ async function crawlSubject(page, subject) {
 
 async function run() {
     log('正在启动增强版抓取器 V5.0...', 'INFO');
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ 
+        headless: process.env.HEADLESS === 'true'
+    });
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -444,17 +463,20 @@ async function run() {
         await page.fill('input[placeholder*="密码"]', AUTH.pass);
         await page.click('.login-form-btn');
         await page.waitForTimeout(6000);
+        
+        // 登录后截图
+        await page.screenshot({ path: path.join(DEBUG_DIR, 'after_login.png') });
 
         if (fs.existsSync(STATUS_FILE)) {
             try { completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')); } catch(e) {}
         }
 
         const subjects = [
-            { name: '2026年中级社会工作者《中级社会工作实务》题库', productId: '317' },
-            { name: '2026年中级社会工作者《中级社会工作法规与政策》题库', productId: '39' },
-            { name: '2026年中级社会工作者《中级社会工作综合能力》题库', productId: '316' },
-            { name: '2026年初级社会工作者《初级社会工作实务》题库', productId: '1525' },
-            { name: '2026年初级社会工作者《初级社会工作综合能力》题库', productId: '1526' },
+            { name: '2026年中级社会工作者《中级社会工作实务》考试题库', productId: '317' },
+            { name: '2026年中级社会工作者《中级社会工作法规与政策》考试题库', productId: '39' },
+            { name: '2026年中级社会工作者《中级社会工作综合能力》考试题库', productId: '316' },
+            { name: '2026年初级社会工作者《初级社会工作实务》考试题库', productId: '1525' },
+            { name: '2026年初级社会工作者《初级社会工作综合能力》考试题库', productId: '1526' },
         ];
 
         for (const sub of subjects) { await crawlSubject(page, sub); }
