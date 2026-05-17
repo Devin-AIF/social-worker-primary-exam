@@ -233,11 +233,12 @@ async function readQuestionData(page) {
 
 async function waitForQuestionReady(page) {
     const ready = await page.waitForFunction(() => {
-        const title = document.querySelector('#item_title, .item-title, .subject-title');
-        const answerBox = document.querySelector('.answer-content, .analysis, #answer_analysis');
-        const hasStep = !!document.querySelector('#item_step, .item-step, .answer-card li');
-        return title && title.innerText.trim().length > 0 && answerBox && hasStep;
-    }, { timeout: 20000 }).catch(() => false);
+        const title = document.querySelector('#item_title, .item-title, .subject-title, .question-title, .subject-attr');
+        const hasStep = Array.from(document.querySelectorAll('div, span, p, b, li'))
+            .some(el => /(\d+)\s*\/\s*(\d+)/.test(el.innerText) && !el.innerText.trim().startsWith('0/'));
+        const hasCard = !!document.querySelector('#tiku_sheet_card li, .answer-card li');
+        return title && title.innerText.trim().length > 5 && (hasStep || hasCard);
+    }, { timeout: 30000 }).catch(() => false);
     if (ready) {
         await installDomGuard(page);
         await handlePopup(page);
@@ -250,36 +251,45 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     await page.goto(finalUrl).catch(() => {});
     await randomSleep(4000, 6000);
     
-    // 页面跳转后截图
-    await page.screenshot({ path: path.join(DEBUG_DIR, `jump_${Date.now()}.png`) });
-    
     // 1. 尝试开始
     const startBtns = ['a:has-text("开始做题")', 'a:has-text("练习模式")', 'a:has-text("做题")', 'a.enable.a2'];
     for (const s of startBtns) { if (await safeClick(page, s, 3000)) break; }
 
-    // 2. 切换背题模式
+    // 2. 强力切换背题模式
     await page.evaluate(() => {
-        const btn = Array.from(document.querySelectorAll('a, button, span, .bd_bt')).find(el => {
-            const t = el.innerText.trim();
-            return t === '背题模式' || t === '背题' || t === '显示答案';
-        });
-        if (btn) btn.click();
-        else if (typeof switchMode === 'function') switchMode('recite');
+        const btn = Array.from(document.querySelectorAll('a, button, span, .bd_bt, i'))
+            .find(el => {
+                const t = (el.innerText || el.parentElement?.innerText || '').trim();
+                return t.includes('背题') || t.includes('显示答案');
+            });
+        if (btn) {
+            btn.click();
+            if (btn.tagName === 'I') btn.parentElement?.click();
+        } else if (typeof switchMode === 'function') {
+            switchMode('recite');
+        }
     }).catch(() => {});
-    await randomSleep(2000, 3000);
+    await randomSleep(3000, 5000);
 
     // 3. 题目跳转
     if (questionIndex > 0) {
         log(`正在跳转至第 ${questionIndex + 1} 题...`, 'DEBUG');
         await page.evaluate((idx) => {
             const cards = document.querySelectorAll('#tiku_sheet_card li, .answer-card li, .dtk_list li');
-            if (cards[idx]) cards[idx].click();
+            if (cards[idx]) {
+                cards[idx].scrollIntoView();
+                cards[idx].click();
+            }
         }, questionIndex).catch(() => {});
-        await randomSleep(2000, 4000);
+        await randomSleep(3000, 5000);
     }
     
-    const ready = await waitForQuestionReady(page);
-    if (!ready) throw new Error(`章节内容加载超时: ${chapterUrl}`);
+    if (!await waitForQuestionReady(page)) {
+        // 兜底：再点一次做题按钮
+        const retryBtns = ['a:has-text("开始做题")', 'a:has-text("做题")'];
+        for (const s of retryBtns) { if (await safeClick(page, s, 3000)) break; }
+        if (!await waitForQuestionReady(page)) throw new Error(`章节内容加载超时: ${chapterUrl}`);
+    }
 }
 
 async function downloadImage(url, dest) {
