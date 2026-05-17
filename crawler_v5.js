@@ -159,7 +159,7 @@ async function readQuestionData(page) {
         const processContent = (el, prefix) => {
             if (!el) return '';
             const clone = el.cloneNode(true);
-            const junkSelectors = ['.err_correct', '.remove_wrong', '.video_analysis', '.subject-action', '.analysis-action', '.report-error', '.show_child', '.fr'];
+            const junkSelectors = ['.err_correct', '.remove_wrong', '.video_analysis', '.subject-action', '.analysis-action', '.report-error', '.show_child', '.fr', '.tips'];
             junkSelectors.forEach(s => clone.querySelectorAll(s).forEach(sub => sub.remove()));
             
             clone.querySelectorAll('img').forEach((img, idx) => {
@@ -171,10 +171,18 @@ async function readQuestionData(page) {
                 img.replaceWith(` ![图](./images/${name}) `);
             });
 
-            let text = (clone.innerText || clone.textContent || '').trim();
-            const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g, /查看视频/g, /听课/g, /展开解析/g];
+            // 使用 innerHTML 转换为带换行的文本，避免 innerText 在某些隐藏元素中获取为空的问题
+            let html = clone.innerHTML;
+            html = html.replace(/<br\s*[\/]?>/gi, '\n');
+            html = html.replace(/<\/p>/gi, '\n');
+            html = html.replace(/<[^>]+>/g, ''); // 移除其他 HTML 标签
+
+            let text = html.trim();
+            const junkPatterns = [/点击查看解析/g, /收起解析/g, /视频解析/g, /我要纠错/g, /从错题本移除/g, /提交/g, /\[视频解析\]/g, /\[查看解析\]/g, /查看视频/g, /听课/g, /展开解析/g, /答案及解析/g];
             junkPatterns.forEach(p => text = text.replace(p, ''));
-            return text.trim();
+            
+            // 修复可能产生的多余空行
+            return text.replace(/\n\s*\n/g, '\n').trim();
         };
 
         const titleEl = document.querySelector('#item_title, .item-title, .subject-title');
@@ -198,7 +206,8 @@ async function readQuestionData(page) {
         for (const s of ansSelectors) {
             const elements = document.querySelectorAll(s);
             for (const el of elements) {
-                const t = el.innerText.replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').replace('答案及解析', '').trim();
+                // 使用刚刚升级的 processContent 避免 innerText 陷阱
+                const t = processContent(el, 'ans_temp').replace('正确答案：', '').replace('答案：', '').replace('参考答案：', '').replace('答案及解析', '').trim();
                 if (t && t.length > 2) { 
                     finalAnswer = t; 
                     break; 
@@ -222,24 +231,49 @@ async function readQuestionData(page) {
             if (fullAnaText) break;
         }
 
-        // 3. 字段分配逻辑 (对齐 2024 年风格：问答题答案直接放"正确答案"区，解析留空或放"无")
-        if (itemType.includes('问答')) {
-            if (fullAnaText) {
-                // 剔除干扰词
-                finalAnswer = fullAnaText.replace(/参考答案：/g, '').replace(/答题要点：/g, '').trim();
-                finalAnalysis = '无'; 
-            }
-        } else if (fullAnaText) {
-            finalAnalysis = fullAnaText;
-            if (finalAnswer === '未知') {
-                 const anaMatch = fullAnaText.match(/(参考答案|正确答案|答案)[：:\n]/);
-                 if (anaMatch) {
-                     finalAnswer = fullAnaText.split(anaMatch[0])[1]?.split('\n')[0].trim() || '见解析';
-                 } else {
-                     finalAnswer = '见解析';
-                 }
+        // 3. 智能字段分配逻辑
+        if (fullAnaText) {
+            // 尝试识别常见的分割关键词
+            const ansKeywords = /(参考答案|正确答案|答案)[：:\n\s]*/;
+            const anaKeywords = /(题目解析|答案解析|解析|【解析】|答题要点)[：:\n\s]*/;
+
+            const ansMatch = fullAnaText.match(ansKeywords);
+            const anaMatch = fullAnaText.match(anaKeywords);
+
+            if (itemType.includes('问答')) {
+                // 针对问答题：通常整个块都是答案或包含要点
+                if (ansMatch && anaMatch) {
+                    // 如果两个都有，尝试分割
+                    const parts = fullAnaText.split(anaKeywords);
+                    // parts[0] 包含答案标识和内容，parts[1] 是关键词，parts[2] 是解析内容
+                    finalAnswer = parts[0].replace(ansKeywords, '').trim();
+                    finalAnalysis = (parts[1] + (parts[2] || '')).trim();
+                } else if (ansMatch) {
+                    // 只有答案标识，全部归为答案
+                    finalAnswer = fullAnaText.replace(ansKeywords, '').trim();
+                    finalAnalysis = '无'; // 这里的 "无" 将由后续逻辑根据网页实际情况填充
+                } else {
+                    // 啥都没有，整个块作为答案
+                    finalAnswer = fullAnaText;
+                    finalAnalysis = '见答案';
+                }
+            } else {
+                // 针对选择题：保持原有的拆分逻辑
+                if (ansMatch && anaMatch) {
+                    const parts = fullAnaText.split(anaKeywords);
+                    if (finalAnswer === '未知') {
+                        finalAnswer = parts[0].replace(ansKeywords, '').trim();
+                    }
+                    finalAnalysis = (parts[1] + (parts[2] || '')).trim();
+                } else {
+                    finalAnalysis = fullAnaText;
+                }
             }
         }
+
+        // 最后收尾：如果 finalAnalysis 还是默认的 "无解析"，且网页上确实没抓到，则保持
+        // 如果 finalAnswer 为空，则标注见解析
+        if (finalAnswer === '未知' && finalAnalysis !== '无解析') finalAnswer = '见解析';
 
         return {
             type: itemType, step, itemId, title: titleText, 
