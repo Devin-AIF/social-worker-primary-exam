@@ -161,9 +161,9 @@ async function readQuestionData(page) {
                     return m ? m[0].replace(/\s/g, '') : null;
                 })
                 .filter(t => t && !t.startsWith('0/'));
-            return potential[0] || '1/1';
+            return potential[0] || '0/0';
         };
-        const step = getStepText();
+        const stepRaw = getStepText();
 
         const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
 
@@ -180,7 +180,7 @@ async function readQuestionData(page) {
                 let src = img.getAttribute('src') || img.getAttribute('data-src') || img.src;
                 if (!src) return;
                 if (src.startsWith('//')) src = 'https:' + src;
-                const name = `q_${step.replace(/\//g, '_')}_${prefix}_${idx}.png`;
+                const name = `q_${stepRaw.replace(/\//g, '_')}_${prefix}_${idx}.png`;
                 images.push({ name, url: src });
                 img.replaceWith(` ![图](./images/${name}) `);
             });
@@ -324,11 +324,11 @@ async function readQuestionData(page) {
         if (noAnalysisEl && finalAnalysis === '无解析') finalAnalysis = '暂无解析';
 
         return {
-            type: itemType, step, itemId, title: titleText, 
+            type: itemType, step: stepRaw, itemId, title: titleText, 
             options: fetchOptions(), answer: finalAnswer, analysis: finalAnalysis, 
             images,
-            fingerprint: (itemId + step).replace(/\s/g, ''),
-            contentFingerprint: (finalAnalysis).replace(/\s/g, '').substring(0, 100) || (finalAnswer + step).replace(/\s/g, ''),
+            fingerprint: (itemId + stepRaw).replace(/\s/g, ''),
+            contentFingerprint: (finalAnalysis + finalAnswer + stepRaw).replace(/\s/g, '').substring(0, 150),
             rawHtml: (finalAnalysis === '无解析') ? document.body.innerHTML : null
         };
     });
