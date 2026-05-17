@@ -214,7 +214,7 @@ async function readQuestionData(page) {
             return t.startsWith('正确答案：') || t.startsWith('正确答案:');
         });
         if (dedicatedAnsBox) {
-            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').trim();
+            finalAnswer = dedicatedAnsBox.innerText.replace(/正确答案[：:\s]*/, '').replace(/^为/, '').trim();
         }
 
         // 1. 提取解析全文 (根据裸跑结果，锁定最精准的路径)
@@ -270,12 +270,12 @@ async function readQuestionData(page) {
 
             // 提取答案
             if (ansPart.match(ansRegex)) {
-                finalAnswer = ansPart.replace(new RegExp('^.*?' + ansRegex.source, 'i'), '').trim();
+                finalAnswer = ansPart.replace(new RegExp('^.*?' + ansRegex.source, 'i'), '').replace(/^为/, '').trim();
             } else if (anaPart.match(ansRegex)) {
                 // 如果答案在解析块里
                 const m = anaPart.match(ansRegex);
                 const afterAns = anaPart.substring(anaPart.indexOf(m[0]) + m[0].length).trim();
-                finalAnswer = afterAns.split(/[\s解]/)[0].trim();
+                finalAnswer = afterAns.split(/[\s解]/)[0].replace(/^为/, '').trim();
             }
 
             // 如果是选择题且没抓到有效答案，尝试暴力搜寻单个大写字母
@@ -692,7 +692,16 @@ async function run() {
         }
 
         try {
-            if (fs.existsSync(STATUS_FILE)) completionStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8'));
+            if (fs.existsSync(STATUS_FILE)) {
+                let raw = fs.readFileSync(STATUS_FILE, 'utf-8').trim();
+                // 防御性处理：移除 JSON 结构外可能的残余字符
+                raw = raw.replace(/^[\s\ufeff\xa0]+|[\s\ufeff\xa0]+$/g, '');
+                if (raw.startsWith('{') && raw.endsWith('}')) {
+                    completionStatus = JSON.parse(raw);
+                } else {
+                    throw new Error('JSON 格式不完整');
+                }
+            }
         } catch (e) {
             log(`状态文件解析失败，将从空状态开始: ${e?.message || e}`, 'WARN');
         }
