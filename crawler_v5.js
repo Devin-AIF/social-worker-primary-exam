@@ -365,12 +365,43 @@ async function openChapterAtQuestion(page, chapterUrl, questionIndex = 0) {
     for (const s of startSelectors) { if (await safeClick(page, s, 3000)) break; }
     
     // 切换背题模式
-    await page.evaluate(() => {
+    log(`尝试切换背题模式...`, 'DEBUG');
+    const modeSwitched = await page.evaluate(() => {
+        const btnSelectors = [
+            '.recite-mode', '#recite_mode', '.beiti', '[data-mode="recite"]', 
+            '.subject-action a', '.analysis-action a', '.tool-bar a'
+        ];
+        
+        // 1. 按文字查找按钮
         const btn = Array.from(document.querySelectorAll('a, button, span, div, li')).find(el => {
-            const t = (el.innerText || '').trim(); return (t === '背题模式' || t === '背题' || t === '显示答案');
+            const t = (el.innerText || '').trim(); 
+            return (t === '背题模式' || t === '背题' || t === '显示答案' || t === '解析模式');
         });
-        if (btn) btn.click();
+        
+        if (btn) {
+            btn.click();
+            return `TextMatch: ${btn.innerText.trim()}`;
+        }
+
+        // 2. 按选择器查找
+        for (const s of btnSelectors) {
+            const el = document.querySelector(s);
+            if (el && (el.innerText || '').includes('背')) {
+                el.click();
+                return `SelectorMatch: ${s}`;
+            }
+        }
+
+        // 3. 暴力模拟切换 (xs507 常用逻辑)
+        if (typeof switchMode === 'function') {
+            switchMode('recite'); 
+            return 'FunctionCall: switchMode';
+        }
+
+        return 'NotFound';
     });
+    log(`背题模式切换结果: ${modeSwitched}`, 'DEBUG');
+    
     await randomSleep(5000, 7000);
     const ready = await waitForQuestionReady(page);
     if (!ready) throw new Error('章节打开后题目未就绪');
