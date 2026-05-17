@@ -357,7 +357,8 @@ async function crawlSubject(page, subject) {
                     const p = a.closest('li, tr, .item, .big');
                     const title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
                     const url = a.href;
-                    let id = url.match(/paper_id[\/=](\d+)/)?.[1] || url.match(/know_id[\/=](\d+)/)?.[1] || Math.random().toString(36).slice(2, 7);
+                    let idMatch = url.match(/(paper_id|know_id)[\/=](\d+)/);
+                    let id = idMatch ? `${idMatch[1].split('_')[0]}-${idMatch[2]}` : Math.random().toString(36).slice(2, 7);
                     return { title, url, id };
                 });
         });
@@ -367,8 +368,19 @@ async function crawlSubject(page, subject) {
             const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
+            if (completionStatus[statusKey]?.isFinished) { 
+                log(`    [跳过] ${chapter.title} (已完成)`, 'INFO'); 
+                continue; 
+            }
+
             let startFrom = getCompletedCount(outputFile);
-            if (completionStatus[statusKey]?.isFinished) { log(`    [跳过] ${chapter.title}`, 'INFO'); continue; }
+            // 如果文件已存在且题目数量已达到 total，也视为完成
+            if (completionStatus[statusKey] && startFrom >= completionStatus[statusKey].total) {
+                log(`    [跳过] ${chapter.title} (文件已完整)`, 'INFO');
+                completionStatus[statusKey].isFinished = true;
+                saveStatus();
+                continue;
+            }
 
             if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
             if (!fs.existsSync(path.join(chapterDir, 'images'))) fs.mkdirSync(path.join(chapterDir, 'images'), { recursive: true });
@@ -412,7 +424,13 @@ async function crawlSubject(page, subject) {
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
                 
-                completionStatus[statusKey] = { completed: curr, total: totalNum };
+                completionStatus[statusKey] = { 
+                    id: chapter.id,
+                    title: chapter.title,
+                    completed: curr, 
+                    total: totalNum,
+                    updatedAt: new Date().toLocaleString()
+                };
                 saveStatus();
                 process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
@@ -426,6 +444,7 @@ async function crawlSubject(page, subject) {
                     } else { break; }
                 } else {
                     completionStatus[statusKey].isFinished = true;
+                    completionStatus[statusKey].updatedAt = new Date().toLocaleString();
                     saveStatus();
                     break;
                 }
