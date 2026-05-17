@@ -155,13 +155,13 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
 async function readQuestionData(page) {
     const data = await page.evaluate(() => {
         const getStepText = () => {
-            const el = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos, .subject-type-box');
-            if (el) {
-                const m = el.innerText.match(/(\d+)\s*\/\s*(\d+)/);
-                if (m) return m[0].replace(/\s/g, '');
-            }
-            const bodyMatch = document.body.innerText.match(/(\d+)\s*\/\s*(\d+)/);
-            return bodyMatch ? bodyMatch[0].replace(/\s/g, '') : '0/0';
+            const potential = Array.from(document.querySelectorAll('div, span, b, strong, p, .item_type_pos, #item_step, .item-step'))
+                .map(el => {
+                    const m = el.innerText.match(/(\d+)\s*\/\s*(\d+)/);
+                    return m ? m[0].replace(/\s/g, '') : null;
+                })
+                .filter(t => t && !t.startsWith('0/'));
+            return potential[0] || '1/1';
         };
         const step = getStepText();
 
@@ -345,11 +345,10 @@ async function readQuestionData(page) {
 async function waitForQuestionReady(page) {
     const ready = await page.waitForFunction(() => {
         const title = document.querySelector('#item_title, .item-title, .subject-title');
-        const stepEl = document.querySelector('#item_step, .item-step, .subject-step, .item_type_pos');
-        const stepText = stepEl ? stepEl.innerText.trim() : '';
-        const stepValid = stepText.includes('/') && !stepText.startsWith('0/');
-        return title && title.innerText.trim().length > 5 && stepValid;
-    }, { timeout: 20000 }).then(() => true).catch((e) => {
+        const hasSlashText = Array.from(document.querySelectorAll('div, span, b, strong, p, li'))
+            .some(el => /(\d+)\s*\/\s*(\d+)/.test(el.innerText) && !el.innerText.trim().startsWith('0/'));
+        return title && title.innerText.trim().length > 5 && hasSlashText;
+    }, { timeout: 25000 }).then(() => true).catch((e) => {
         logError('waitForQuestionReady', e);
         return false;
     });
@@ -634,22 +633,11 @@ async function crawlSubject(page, subject) {
                 await triggerOfficialAnalysis(page, lastContentFp);
 
                 let data = await readQuestionData(page);
-                let [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
-                
-                // 防御性纠正：如果抓取失败，重试
-                if (!totalNum || totalNum === 0) {
-                    log(`题号读取失败 (${data.step})，等待 3 秒重试...`, 'WARN');
-                    await page.waitForTimeout(3000);
-                    data = await readQuestionData(page);
-                    [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
-                }
+                let [curr, totalNum] = (data.step || '1/1').split('/').map(Number);
+                if (isNaN(curr)) curr = 1;
+                if (isNaN(totalNum)) totalNum = 1;
 
-                if (!totalNum) {
-                    log(`章节题目信息无效，跳过本章: ${chapter.title}`, 'ERROR');
-                    break;
-                }
-
-                // 刷新检测：如果内容没变，原地等待
+                // 刷新检测
                 if (data.contentFingerprint === lastContentFp && data.contentFingerprint.length > 10) {
                     log(`等待内容刷新 (题号: ${data.step})...`, 'DEBUG');
                     let success = false;
@@ -676,7 +664,7 @@ async function crawlSubject(page, subject) {
                 md += `> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
                 
                 fs.appendFileSync(outputFile, md);
-                log(`    [写入] ${data.step} -> 答案: ${data.answer.substring(0, 10)}`, 'DEBUG');
+                log(`    [数据保存] 题号: ${data.step} | 答案: ${data.answer.substring(0, 20)}`, 'INFO');
 
                 lastContentFp = data.contentFingerprint;
                 MONITOR.stats.totalCaptured++;
