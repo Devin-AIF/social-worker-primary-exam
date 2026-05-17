@@ -239,8 +239,8 @@ async function readQuestionData(page) {
         let fullAnaText = '';
         for (const s of anaSelectors) {
             const el = document.querySelector(s);
-            if (el) {
-                // 物理隔离检测：如果抓到的内容包含题目，或者就是题目容器，绝对丢弃
+            // 物理隔离检测：必须可见，且不是题目内容
+            if (el && isVisible(el)) {
                 const candidate = processContent(el, 'ans');
                 if (candidate && candidate.length > 5 && !titleText.includes(candidate.substring(0, 50))) {
                     fullAnaText = candidate;
@@ -682,9 +682,14 @@ async function crawlSubject(page, subject) {
                         const old = { step: data.step, id: data.itemId, title: data.title };
                         await next.click({ force: true });
                         const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp, old.title);
+                        
                         if (!changed) {
-                            log(`翻页失败，章节终止: ${chapter.title} @ ${old.step}`, 'ERROR');
-                            break;
+                            log(`翻页似乎卡死，尝试强制刷新页面 (题号: ${data.step})...`, 'WARN');
+                            await page.reload();
+                            await randomSleep(5000, 7000);
+                            await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到下一题
+                            await triggerOfficialAnalysis(page);
+                            await page.waitForTimeout(2000);
                         }
                     } else { break; }
                 } else {
