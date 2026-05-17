@@ -15,15 +15,16 @@ const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
-
-function askUser(query) {
-    return new Promise(resolve => rl.question(query, resolve));
+function buildStableChapterKey(chapter) {
+    if (chapter.id) return chapter.id;
+    const encoded = Buffer.from(chapter.url || chapter.title || '').toString('base64');
+    return `url-${encoded.replace(/[+/=]/g, '').slice(0, 24)}`;
 }
 
 // --- 配置与常量 ---
 const AUTH = {
-    user: process.env.XS507_USER,
-    pass: process.env.XS507_PASS
+    user: process.env.XS507_USER || '13510922043',
+    pass: process.env.XS507_PASS || '265567'
 };
 
 const LOGIN_URL = 'https://www.xs507.com/Home/login/account.html?hide-tip=1';
@@ -34,8 +35,6 @@ const STATUS_FILE = path.join(OUTPUT_DIR, 'completion_status.json');
 const DEBUG_DIR = path.join(PROJECT_ROOT, 'debug_screenshots'); 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
-
-const ENABLE_DISCUSSION_FALLBACK = true;
 
 // --- 辅助函数 ---
 function log(message, type = 'INFO') {
@@ -440,21 +439,55 @@ async function crawlSubject(page, subject) {
         await randomSleep(3000, 5000);
 
         const chapters = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a'))
+            const raw = Array.from(document.querySelectorAll('a'))
                 .filter(a => (a.innerText.includes('模式') || a.innerText.includes('做题')) && a.href.includes('product_id'))
                 .map(a => {
                     const p = a.closest('li, tr, .item, .big');
                     const title = p?.querySelector('.title, .name, .item-title')?.innerText.trim() || a.innerText.trim();
                     const url = a.href;
                     let idMatch = url.match(/(paper_id|know_id)[\/=](\d+)/);
-                    let id = idMatch ? `${idMatch[1].split('_')[0]}-${idMatch[2]}` : Math.random().toString(36).slice(2, 7);
+                    let id = idMatch ? `${idMatch[1].split('_')[0]}-${idMatch[2]}` : '';
                     return { title, url, id };
                 });
+            const seen = new Set();
+            return raw.filter(ch => {
+                const dedupeKey = ch.id || ch.url;
+                if (!dedupeKey || seen.has(dedupeKey)) return false;
+                seen.add(dedupeKey);
+                return true;
+            });
         });
 
         for (const chapter of chapters) {
-            const statusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
-            const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
+            const chapterKey = buildStableChapterKey(chapter);
+            const statusKey = `${subject.productId}_${cat.name}_${chapterKey}`;
+            const legacyStatusKey = `${subject.name}_${cat.name}_${chapter.title}_${chapter.id}`;
+            let statusMigrated = false;
+            if (!completionStatus[statusKey] && completionStatus[legacyStatusKey]) {
+                completionStatus[statusKey] = {
+                    ...completionStatus[legacyStatusKey],
+                    migratedFrom: legacyStatusKey,
+                    migratedAt: new Date().toLocaleString()
+                };
+                delete completionStatus[legacyStatusKey];
+                statusMigrated = true;
+            }
+
+            const legacyChapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapter.id}`);
+            const chapterDir = path.join(typeDir, `${sanitizeFileName(chapter.title)}_${chapterKey}`);
+            if (legacyChapterDir !== chapterDir && fs.existsSync(legacyChapterDir) && !fs.existsSync(chapterDir)) {
+                try {
+                    fs.renameSync(legacyChapterDir, chapterDir);
+                    statusMigrated = true;
+                    log(`    [迁移] 章节目录已迁移: ${chapter.title}`, 'INFO');
+                } catch (e) {
+                    log(`    [迁移] 章节目录迁移失败: ${chapter.title} (${e?.message || e})`, 'WARN');
+                }
+            }
+            if (statusMigrated) {
+                saveStatus();
+                log(`    [迁移] 状态键已迁移: ${chapter.title}`, 'INFO');
+            }
             const outputFile = path.join(chapterDir, `${sanitizeFileName(chapter.title)}.md`);
             
             if (completionStatus[statusKey]?.isFinished) { 
@@ -463,6 +496,7 @@ async function crawlSubject(page, subject) {
             }
 
             let startFrom = getCompletedCount(outputFile);
+            startFrom = Math.max(startFrom, completionStatus[statusKey]?.completed || 0);
             // 如果文件已存在且题目数量已达到 total，也视为完成
             if (completionStatus[statusKey] && startFrom >= completionStatus[statusKey].total) {
                 log(`    [跳过] ${chapter.title} (文件已完整)`, 'INFO');
@@ -484,7 +518,6 @@ async function crawlSubject(page, subject) {
             }
 
             let lastContentFp = '';
-            let lastId = '';
             while (true) {
                 const ready = await waitForQuestionReady(page);
                 if (!ready) {
@@ -518,7 +551,6 @@ async function crawlSubject(page, subject) {
                 fs.appendFileSync(outputFile, md);
 
                 lastContentFp = data.contentFingerprint;
-                lastId = data.itemId;
                 MONITOR.stats.totalCaptured++;
                 if (data.analysis === '无解析') MONITOR.stats.noAnalysisCount++;
                 
