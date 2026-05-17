@@ -111,16 +111,13 @@ async function safeClick(page, selector, waitAfter = 0) {
  * 触发官方解析 (增强版：带去重校验)
  */
 async function triggerOfficialAnalysis(page, lastContentFp = '') {
-    // 1. 物理清理所有解析容器，确保旧数据不干扰
     await page.evaluate(() => {
-        const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.answer-content', '.analysis-box', '.answer-analysis', '.jiexi-content', '.answer-yes', '.right-answer'];
+        // 1. 物理清理所有解析容器，确保旧数据不干扰 (但不隐藏，防止可见性判定失败)
+        const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.answer-content', '.answer-box', '.answer-analysis', '.jiexi-content', '.answer-yes', '.right-answer'];
         anaSelectors.forEach(s => document.querySelectorAll(s).forEach(el => {
             el.innerHTML = '';
-            el.style.display = 'none';
         }));
-    }).catch(() => {});
 
-    await page.evaluate(() => {
         // 2. 尝试点击所有可能的“显示”按钮
         const clickSelectors = ['.click_analysis', '[data-type="analysis"]', '.analysis-btn', '.show-analysis', '.jiexi', '.show-answer', '#show_answer_btn', '.view-answer', '.subject-submit'];
         clickSelectors.forEach(s => {
@@ -140,25 +137,17 @@ async function triggerOfficialAnalysis(page, lastContentFp = '') {
         }
     });
 
-    // 4. 循环等待新内容加载，且必须与旧内容指纹不同
-    for (let i = 0; i < 10; i++) {
-        const currentData = await page.evaluate(() => {
+    // 4. 循环等待新内容加载
+    for (let i = 0; i < 6; i++) {
+        const hasContent = await page.evaluate(() => {
             const anaSelectors = ['.analysis', '#answer_analysis', '#analysis', '.jiexi-content', '.answer-yes', '.right-answer'];
-            let bestText = '';
             for (const s of anaSelectors) {
                 const el = document.querySelector(s);
-                if (el && el.innerText.trim().length > 15 && el.offsetParent !== null) {
-                    bestText = el.innerText.trim();
-                    break;
-                }
+                if (el && el.innerText.trim().length > 10) return true;
             }
-            return bestText;
+            return false;
         });
-
-        const currentFp = currentData.replace(/\s/g, '').substring(0, 100);
-        if (currentFp && currentFp !== lastContentFp) {
-            break; // 成功拿到新解析
-        }
+        if (hasContent) break;
         await page.waitForTimeout(1000);
     }
 }
@@ -633,8 +622,9 @@ async function crawlSubject(page, subject) {
                 await triggerOfficialAnalysis(page, lastContentFp);
 
                 let data = await readQuestionData(page);
-                const [curr, totalNum] = data.step.split('/').map(Number);
-                if (!curr || !totalNum) break;
+                let [curr, totalNum] = data.step.split('/').map(Number);
+                if (!totalNum) totalNum = curr || 1; // 稳健性处理
+                if (!curr) curr = 1;
                 
                 // 刷新检测：如果内容没变，原地等待
                 if (data.contentFingerprint === lastContentFp && data.contentFingerprint.length > 10) {
@@ -647,12 +637,11 @@ async function crawlSubject(page, subject) {
                         if (data.contentFingerprint !== lastContentFp) { success = true; break; }
                     }
                     
-                    // 如果还是没刷新，尝试强制重载页面（终极手段解决缓存/解析重复）
                     if (!success) {
                         log(`内容刷新卡死，尝试强制重载页面...`, 'WARN');
                         await page.reload();
                         await randomSleep(5000, 7000);
-                        await openChapterAtQuestion(page, chapter.url, curr - 1); // 重新定位到当前题
+                        await openChapterAtQuestion(page, chapter.url, curr - 1);
                         await triggerOfficialAnalysis(page, lastContentFp);
                         data = await readQuestionData(page);
                     }
@@ -662,7 +651,9 @@ async function crawlSubject(page, subject) {
                 let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
                 if (data.options) md += `**选项：**\n\`\`\`\n${data.options}\n\`\`\`\n\n`;
                 md += `> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
+                
                 fs.appendFileSync(outputFile, md);
+                log(`    [写入] ${data.step} -> ${data.answer.substring(0, 10)}`, 'DEBUG');
 
                 lastContentFp = data.contentFingerprint;
                 MONITOR.stats.totalCaptured++;
