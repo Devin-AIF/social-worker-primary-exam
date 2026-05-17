@@ -236,58 +236,55 @@ async function readQuestionData(page) {
             }
         }
 
-        // 2. 字段分配逻辑 (优化分离算法)
+        // 2. 字段分配逻辑 (极强容错版)
         if (fullAnaText) {
-            const ansKeywords = /(?:参考答案|正确答案|【答案】|答案)[：:\n\s]*/;
-            const anaKeywords = /(?:题目解析|答案解析|解析|【解析】|答题要点|要点)[：:\n\s]*/g; // 增加 g 标志用于 search
+            // 关键词正则，允许中间有空格
+            const ansRegex = /(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\n\s]*/;
+            const anaRegex = /(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\n\s]*/g;
 
-            // 寻找第一个解析关键字的位置
-            const anaMatch = fullAnaText.match(anaKeywords);
-            const anaIndex = anaMatch ? fullAnaText.indexOf(anaMatch[0]) : -1;
+            // 统一清洗：先把极其隐蔽的各种空格/换行符统一化
+            const cleanFullText = fullAnaText.replace(/\s+/g, ' ');
+
+            // 寻找第一个解析关键字
+            const anaMatch = cleanFullText.match(anaRegex);
+            const anaIndex = anaMatch ? cleanFullText.indexOf(anaMatch[0]) : -1;
 
             if (anaIndex !== -1) {
-                // 分割为答案部分和解析部分
-                let ansPart = fullAnaText.substring(0, anaIndex).trim();
-                let anaPart = fullAnaText.substring(anaIndex).trim();
+                let ansPart = cleanFullText.substring(0, anaIndex).trim();
+                let anaPart = cleanFullText.substring(anaIndex).trim();
 
-                // 提取答案内容
-                finalAnswer = ansPart.replace(ansKeywords, '').trim();
-                // 提取解析内容并去重前缀
-                finalAnalysis = anaPart.replace(anaKeywords, '').trim();
-                
-                // 补偿逻辑：如果答案部分被切空了（说明关键字挨得太近），尝试在解析部分寻找答案
-                if (!finalAnswer && anaPart.match(ansKeywords)) {
-                    // 这种情况通常是 "参考答案：A 解析：..." 变成了 anaPart
-                    const nestedAnsMatch = anaPart.match(ansKeywords);
-                    if (nestedAnsMatch) {
-                        const afterAns = anaPart.substring(anaPart.indexOf(nestedAnsMatch[0]) + nestedAnsMatch[0].length);
-                        finalAnswer = afterAns.split(/[解析\s]/)[0].trim();
+                finalAnswer = ansPart.replace(ansRegex, '').trim();
+                finalAnalysis = anaPart.replace(anaRegex, '').trim();
+
+                // 深度补偿：如果 ansPart 被切后变空，且解析部分开头有答案
+                if (!finalAnswer) {
+                    const nestedAns = anaPart.match(ansRegex);
+                    if (nestedAns) {
+                        const startIndex = anaPart.indexOf(nestedAns[0]) + nestedAns[0].length;
+                        const potentialAns = anaPart.substring(startIndex).trim();
+                        // 寻找答案后的第一个分隔符（空格、解析等）
+                        finalAnswer = potentialAns.split(/[\s解]/)[0].trim();
+                        // 如果从解析里拿了答案，也要把解析里的那部分切掉
+                        finalAnalysis = potentialAns.substring(finalAnswer.length).replace(/^[解\s：:]+/, '').trim();
                     }
                 }
             } else {
-                // 没有找到解析关键字
-                if (fullAnaText.match(ansKeywords)) {
-                    finalAnswer = fullAnaText.replace(ansKeywords, '').trim();
-                    finalAnalysis = '无';
+                // 没找到解析关键字，全量匹配答案
+                finalAnswer = cleanFullText.replace(ansRegex, '').trim();
+                if (finalAnswer === cleanFullText) {
+                    // 说明没匹配到答案关键字，可能是纯解析
+                    finalAnswer = '见解析';
+                    finalAnalysis = cleanFullText;
                 } else {
-                    // 既没答案关键字也没解析关键字，看题型
-                    if (itemType.includes('问答')) {
-                        finalAnswer = fullAnaText;
-                        finalAnalysis = '无';
-                    } else {
-                        // 选择题，如果只有一段文字，可能是答案，也可能是解析
-                        if (fullAnaText.length < 10) {
-                            finalAnswer = fullAnaText;
-                        } else {
-                            finalAnalysis = fullAnaText;
-                        }
-                    }
+                    finalAnalysis = '无';
                 }
             }
 
-            // 最终清洗：如果解析开头还是有“解析：”等字样，强力去除
-            const cleanupPattern = /^(?:题目解析|答案解析|解析|【解析】|答题要点|要点)[：:\n\s]*/;
-            finalAnalysis = finalAnalysis.replace(cleanupPattern, '').trim();
+            // 二次深度清洗解析前缀
+            const multiCleanup = /^(?:题目解析|答案解析|解析|【解析】|答题要点|要点|参考答案|正确答案|答案)[：:\s]*/i;
+            for(let i=0; i<3; i++) { // 循环三次防止叠词
+                finalAnalysis = finalAnalysis.replace(multiCleanup, '').trim();
+            }
             if (!finalAnalysis) finalAnalysis = '无';
         }
 
