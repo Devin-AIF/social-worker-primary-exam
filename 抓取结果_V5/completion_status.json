@@ -618,5 +618,53 @@
     "completed": 1,
     "total": 50,
     "updatedAt": "5/17/2026, 5:16:26 PM"
+  },
+  "1525_章节练习_know_id-32066": {
+    "completed": 1,
+    "total": 132,
+    "updatedAt": "5/17/2026, 5:16:40 PM"
+  },
+  "1525_章节练习_know_id-32067": {
+    "completed": 1,
+    "total": 116,
+    "updatedAt": "5/17/2026, 5:16:54 PM"
+  },
+  "1525_章节练习_know_id-32068": {
+    "completed": 1,
+    "total": 119,
+    "updatedAt": "5/17/2026, 5:17:07 PM"
+  },
+  "1525_章节练习_know_id-32069": {
+    "completed": 1,
+    "total": 113,
+    "updatedAt": "5/17/2026, 5:17:21 PM"
+  },
+  "1525_章节练习_know_id-32070": {
+    "completed": 1,
+    "total": 104,
+    "updatedAt": "5/17/2026, 5:17:33 PM"
+  },
+  "1525_章节练习_know_id-32074": {
+    "completed": 1,
+    "total": 114,
+    "updatedAt": "5/17/2026, 5:17:47 PM"
+  },
+  "1525_历年真题_paper_id-16043": {
+    "completed": 80,
+    "total": 80,
+    "updatedAt": "5/17/2026, 5:18:04 PM",
+    "isFinished": true
+  },
+  "1525_历年真题_paper_id-15559": {
+    "completed": 80,
+    "total": 80,
+    "updatedAt": "5/17/2026, 5:18:18 PM",
+    "isFinished": true
+  },
+  "1525_历年真题_paper_id-15558": {
+    "completed": 80,
+    "total": 80,
+    "updatedAt": "5/17/2026, 5:18:31 PM",
+    "isFinished": true
   }
 }
