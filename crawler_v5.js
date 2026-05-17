@@ -634,10 +634,21 @@ async function crawlSubject(page, subject) {
                 await triggerOfficialAnalysis(page, lastContentFp);
 
                 let data = await readQuestionData(page);
-                let [curr, totalNum] = data.step.split('/').map(Number);
-                if (!totalNum) totalNum = curr || 1; // 稳健性处理
-                if (!curr) curr = 1;
+                let [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
                 
+                // 防御性纠正：如果抓取失败，重试
+                if (!totalNum || totalNum === 0) {
+                    log(`题号读取失败 (${data.step})，等待 3 秒重试...`, 'WARN');
+                    await page.waitForTimeout(3000);
+                    data = await readQuestionData(page);
+                    [curr, totalNum] = (data.step || '0/0').split('/').map(Number);
+                }
+
+                if (!totalNum) {
+                    log(`章节题目信息无效，跳过本章: ${chapter.title}`, 'ERROR');
+                    break;
+                }
+
                 // 刷新检测：如果内容没变，原地等待
                 if (data.contentFingerprint === lastContentFp && data.contentFingerprint.length > 10) {
                     log(`等待内容刷新 (题号: ${data.step})...`, 'DEBUG');
@@ -665,7 +676,7 @@ async function crawlSubject(page, subject) {
                 md += `> **正确答案：** ${data.answer}\n\n**解析：**\n${data.analysis}\n\n---\n\n`;
                 
                 fs.appendFileSync(outputFile, md);
-                log(`    [写入] ${data.step} -> ${data.answer.substring(0, 10)}`, 'DEBUG');
+                log(`    [写入] ${data.step} -> 答案: ${data.answer.substring(0, 10)}`, 'DEBUG');
 
                 lastContentFp = data.contentFingerprint;
                 MONITOR.stats.totalCaptured++;
@@ -682,10 +693,9 @@ async function crawlSubject(page, subject) {
                 process.stdout.write(`\r进度: ${data.step} | 解析: ${data.analysis !== '无解析' ? '✔' : '✘'}`);
                 for (const img of data.images) { await downloadImage(img.url, path.join(chapterDir, 'images', img.name)); }
 
-                if (curr < totalNum || totalNum === 0) {
-                    // 增强：等待“下一题”按钮出现
+                if (curr < totalNum) {
                     const next = await page.waitForSelector('.subject-next, #next_item, .next-btn', { timeout: 5000 }).catch(() => null);
-                    if (next && curr < totalNum) {
+                    if (next) {
                         const old = { step: data.step, id: data.itemId, title: data.title };
                         await next.click({ force: true });
                         const changed = await waitForQuestionChange(page, old.id, old.step, lastContentFp, old.title);
@@ -694,20 +704,15 @@ async function crawlSubject(page, subject) {
                             log(`翻页似乎卡死，尝试强制刷新页面 (题号: ${data.step})...`, 'WARN');
                             await page.reload();
                             await randomSleep(5000, 7000);
-                            await openChapterAtQuestion(page, chapter.url, curr); // 重新定位到下一题
+                            await openChapterAtQuestion(page, chapter.url, curr); 
                             await triggerOfficialAnalysis(page, lastContentFp);
                         }
-                    } else if (totalNum === 0) {
-                        log(`题号抓取异常 (0/0)，尝试等待 5 秒重试...`, 'WARN');
-                        await page.waitForTimeout(5000);
                     } else { 
-                        log(`已达最后一题或按钮缺失 (curr=${curr}, total=${totalNum})`, 'INFO');
-                        completionStatus[statusKey].isFinished = true;
-                        completionStatus[statusKey].updatedAt = new Date().toLocaleString();
-                        saveStatus();
-                        break;
+                        log(`未找到“下一题”按钮，章节异常终止: ${chapter.title} @ ${data.step}`, 'WARN');
+                        break; 
                     }
                 } else {
+                    log(`\n    [完成] ${chapter.title} (已抓取至最后一题)`, 'INFO');
                     completionStatus[statusKey].isFinished = true;
                     completionStatus[statusKey].updatedAt = new Date().toLocaleString();
                     saveStatus();
