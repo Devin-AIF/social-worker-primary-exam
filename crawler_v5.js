@@ -236,30 +236,59 @@ async function readQuestionData(page) {
             }
         }
 
-        // 2. 字段分配逻辑 (适配 2023/2024 真实结构)
+        // 2. 字段分配逻辑 (优化分离算法)
         if (fullAnaText) {
             const ansKeywords = /(?:参考答案|正确答案|【答案】|答案)[：:\n\s]*/;
-            const anaKeywords = /(?:题目解析|答案解析|解析|【解析】|答题要点|要点)[：:\n\s]*/;
+            const anaKeywords = /(?:题目解析|答案解析|解析|【解析】|答题要点|要点)[：:\n\s]*/g; // 增加 g 标志用于 search
 
-            if (itemType.includes('问答')) {
-                // 如果抓到的块里同时有答案和要点，进行切割
-                if (fullAnaText.match(ansKeywords) && fullAnaText.match(anaKeywords)) {
-                    const parts = fullAnaText.split(anaKeywords);
-                    finalAnswer = parts[0].replace(ansKeywords, '').trim();
-                    finalAnalysis = fullAnaText.substring(fullAnaText.search(anaKeywords)).trim();
-                } else if (fullAnaText.match(ansKeywords)) {
-                    finalAnswer = fullAnaText.replace(ansKeywords, '').trim();
-                    finalAnalysis = '无'; // 如果后面没跟要点，则解析为无
-                } else {
-                    finalAnswer = fullAnaText;
-                    finalAnalysis = '无';
+            // 寻找第一个解析关键字的位置
+            const anaMatch = fullAnaText.match(anaKeywords);
+            const anaIndex = anaMatch ? fullAnaText.indexOf(anaMatch[0]) : -1;
+
+            if (anaIndex !== -1) {
+                // 分割为答案部分和解析部分
+                let ansPart = fullAnaText.substring(0, anaIndex).trim();
+                let anaPart = fullAnaText.substring(anaIndex).trim();
+
+                // 提取答案内容
+                finalAnswer = ansPart.replace(ansKeywords, '').trim();
+                // 提取解析内容并去重前缀
+                finalAnalysis = anaPart.replace(anaKeywords, '').trim();
+                
+                // 补偿逻辑：如果答案部分被切空了（说明关键字挨得太近），尝试在解析部分寻找答案
+                if (!finalAnswer && anaPart.match(ansKeywords)) {
+                    // 这种情况通常是 "参考答案：A 解析：..." 变成了 anaPart
+                    const nestedAnsMatch = anaPart.match(ansKeywords);
+                    if (nestedAnsMatch) {
+                        const afterAns = anaPart.substring(anaPart.indexOf(nestedAnsMatch[0]) + nestedAnsMatch[0].length);
+                        finalAnswer = afterAns.split(/[解析\s]/)[0].trim();
+                    }
                 }
             } else {
-                // 选择题逻辑
-                const parts = fullAnaText.split(anaKeywords);
-                finalAnswer = parts[0].replace(ansKeywords, '').trim();
-                finalAnalysis = parts.length > 1 ? fullAnaText.substring(fullAnaText.search(anaKeywords)).trim() : '无';
+                // 没有找到解析关键字
+                if (fullAnaText.match(ansKeywords)) {
+                    finalAnswer = fullAnaText.replace(ansKeywords, '').trim();
+                    finalAnalysis = '无';
+                } else {
+                    // 既没答案关键字也没解析关键字，看题型
+                    if (itemType.includes('问答')) {
+                        finalAnswer = fullAnaText;
+                        finalAnalysis = '无';
+                    } else {
+                        // 选择题，如果只有一段文字，可能是答案，也可能是解析
+                        if (fullAnaText.length < 10) {
+                            finalAnswer = fullAnaText;
+                        } else {
+                            finalAnalysis = fullAnaText;
+                        }
+                    }
+                }
             }
+
+            // 最终清洗：如果解析开头还是有“解析：”等字样，强力去除
+            const cleanupPattern = /^(?:题目解析|答案解析|解析|【解析】|答题要点|要点)[：:\n\s]*/;
+            finalAnalysis = finalAnalysis.replace(cleanupPattern, '').trim();
+            if (!finalAnalysis) finalAnalysis = '无';
         }
 
         // 3. 容错校验：如果网页上直接写了 "暂无解析"，如实记录
