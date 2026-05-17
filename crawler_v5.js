@@ -253,26 +253,28 @@ async function readQuestionData(page) {
                 let ansPart = cleanFullText.substring(0, anaIndex).trim();
                 let anaPart = cleanFullText.substring(anaIndex).trim();
 
-                finalAnswer = ansPart.replace(ansRegex, '').trim();
-                finalAnalysis = anaPart.replace(anaRegex, '').trim();
+                // 提取答案：使用 ^.*? 确保匹配并删除关键词及其之前的所有内容（如“参考”）
+                finalAnswer = ansPart.replace(/^.*?(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*/i, '').trim();
+                // 提取解析：同样逻辑，删除“解析”字样及其之前的内容
+                finalAnalysis = anaPart.replace(/^.*?(?:题\s*目\s*解\s*析|答\s*案\s*解\s*析|解\s*析|【\s*解\s*析\s*】|答\s*题\s*要\s*点|要\s*点)[：:\s]*/i, '').trim();
 
-                // 深度补偿：如果 ansPart 被切后变空，且解析部分开头有答案
+                // 补偿逻辑：如果 ansPart 被切后变空，且解析部分开头有答案
                 if (!finalAnswer) {
-                    const nestedAns = anaPart.match(ansRegex);
-                    if (nestedAns) {
-                        const startIndex = anaPart.indexOf(nestedAns[0]) + nestedAns[0].length;
+                    const nestedAnsMatch = anaPart.match(ansRegex);
+                    if (nestedAnsMatch) {
+                        const startIndex = anaPart.indexOf(nestedAnsMatch[0]) + nestedAnsMatch[0].length;
                         const potentialAns = anaPart.substring(startIndex).trim();
-                        // 寻找答案后的第一个分隔符（空格、解析等）
                         finalAnswer = potentialAns.split(/[\s解]/)[0].trim();
-                        // 如果从解析里拿了答案，也要把解析里的那部分切掉
-                        finalAnalysis = potentialAns.substring(finalAnswer.length).replace(/^[解\s：:]+/, '').trim();
+                        // 修正解析内容，去掉已提取的答案部分
+                        if (finalAnswer && finalAnalysis.startsWith(finalAnswer)) {
+                            finalAnalysis = finalAnalysis.substring(finalAnswer.length).replace(/^[解\s：:]+/, '').trim();
+                        }
                     }
                 }
             } else {
                 // 没找到解析关键字，全量匹配答案
-                finalAnswer = cleanFullText.replace(ansRegex, '').trim();
+                finalAnswer = cleanFullText.replace(/^.*?(?:参\s*考\s*答\s*案|正\s*确\s*答\s*案|【\s*答\s*案\s*】|答\s*案)[：:\s]*/i, '').trim();
                 if (finalAnswer === cleanFullText) {
-                    // 说明没匹配到答案关键字，可能是纯解析
                     finalAnswer = '见解析';
                     finalAnalysis = cleanFullText;
                 } else {
