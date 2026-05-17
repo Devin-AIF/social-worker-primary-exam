@@ -349,7 +349,18 @@ async function waitForQuestionReady(page) {
 }
 
 async function waitForQuestionChange(page, oldId, oldStep, oldContentFp) {
-    // 强制等待：ID必须变，或者内容必须变（应对ID不变但内容刷新的情况）
+    // 1. 翻页前清理 DOM，防止读取到残留数据
+    await page.evaluate(() => {
+        const cleaners = ['#item_title', '#item_options', '.analysis', '#answer_analysis', '#analysis', '.answer-yes', '.right-answer'];
+        cleaners.forEach(s => {
+            document.querySelectorAll(s).forEach(el => {
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value = '';
+                else el.innerHTML = '';
+            });
+        });
+    }).catch(() => {});
+
+    // 2. 强制等待：ID必须变，或者内容必须变（应对ID不变但内容刷新的情况）
     const changed = await page.waitForFunction(({ oldId, oldStep, oldContentFp }) => {
         const curId = (document.querySelector('#item_id')?.innerText || '').replace(/编号：/g, '').trim();
         const curStep = (document.querySelector('#item_step, .item-step')?.innerText || '').trim();
@@ -358,14 +369,18 @@ async function waitForQuestionChange(page, oldId, oldStep, oldContentFp) {
         const idChanged = curId && curId !== oldId;
         const stepChanged = curStep && curStep !== oldStep;
         
-        return idChanged || stepChanged;
+        // 且标题必须有新内容
+        const title = document.querySelector('#item_title, .item-title')?.innerText.trim();
+        const titleReady = title && title.length > 0;
+
+        return (idChanged || stepChanged) && titleReady;
     }, { oldId, oldStep, oldContentFp }, { timeout: 10000 }).then(() => true).catch((e) => {
         logError(`waitForQuestionChange(oldId=${oldId}, oldStep=${oldStep})`, e);
         return false;
     });
     
     if (!changed) return false;
-    await randomSleep(1500, 2500); // 自然等待 AJAX 加载
+    await randomSleep(2000, 3500); // 延长自然等待，确保解析也加载完成
     return true;
 }
 
@@ -612,22 +627,31 @@ async function crawlSubject(page, subject) {
                 await page.waitForTimeout(1500); 
 
                 let data = await readQuestionData(page);
+                const [curr, totalNum] = data.step.split('/').map(Number);
+                if (!curr || !totalNum) break;
                 
                 // 刷新检测：如果内容没变，原地等待
                 if (data.contentFingerprint === lastContentFp && data.contentFingerprint.length > 10) {
                     log(`等待内容刷新 (题号: ${data.step})...`, 'DEBUG');
                     let success = false;
-                    for(let i=0; i<5; i++) {
-                        await page.waitForTimeout(2000);
+                    for(let i=0; i<3; i++) {
+                        await page.waitForTimeout(2500);
                         await triggerOfficialAnalysis(page);
                         data = await readQuestionData(page);
                         if (data.contentFingerprint !== lastContentFp) { success = true; break; }
                     }
-                    if(!success) log(`警告：解析内容未见刷新。`, 'WARN');
+                    
+                    // 如果还是没刷新，尝试强制重载页面（终极手段解决缓存/解析重复）
+                    if (!success) {
+                        log(`内容刷新卡死，尝试强制重载页面...`, 'WARN');
+                        await page.reload();
+                        await randomSleep(5000, 7000);
+                        await openChapterAtQuestion(page, chapter.url, curr - 1); // 重新定位到当前题
+                        await triggerOfficialAnalysis(page);
+                        await page.waitForTimeout(2000);
+                        data = await readQuestionData(page);
+                    }
                 }
-
-                const [curr, totalNum] = data.step.split('/').map(Number);
-                if (!curr || !totalNum) break;
 
                 // 写入数据
                 let md = `## 第 ${curr} 题 [${data.type}]\n\n**题目：** ${data.title}\n\n`;
